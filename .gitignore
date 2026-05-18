@@ -1,3 +1,6 @@
 __pycache__/
 .pytest_cache/
 .DS_Store
+*.docx
+doc/algorithm-overview.md
+doc/python-to-vba-mapping.md
