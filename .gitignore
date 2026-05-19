@@ -2,5 +2,15 @@ __pycache__/
 .pytest_cache/
 .DS_Store
 *.docx
+doc/*.pdf
+export/*.xlsx
+export/assets/
+
+# 自 PDF 提取的参考数据（任意格式均不得 push；见 data/reference/README.md）
+data/reference/**
+!data/reference/README.md
+doc/core_streams.csv
+doc/core_streams.md
+doc/core_topology.svg
 doc/algorithm-overview.md
 doc/python-to-vba-mapping.md

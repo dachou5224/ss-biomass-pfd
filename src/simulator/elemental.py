@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict
 
-from .species import ATOMIC_WEIGHT
+from .parameters import ATOMIC_WEIGHT, load_json_config
 
 
 @dataclass(frozen=True)
@@ -18,28 +18,16 @@ class BiomassSample:
     od_pct_dry: float
 
 
-BIOMASS_SAMPLES: Dict[str, BiomassSample] = {
-    "8#": BiomassSample(
-        sample_id="8#",
-        mad_pct=3.72,
-        ad_pct=4.760,
-        cd_pct_dry=48.00,
-        hd_pct_dry=5.96,
-        nd_pct_dry=0.65,
-        sd_pct_dry=0.041,
-        od_pct_dry=40.589,
-    ),
-    "11#": BiomassSample(
-        sample_id="11#",
-        mad_pct=5.0,
-        ad_pct=8.0,
-        cd_pct_dry=45.609,
-        hd_pct_dry=5.626,
-        nd_pct_dry=0.845,
-        sd_pct_dry=0.092,
-        od_pct_dry=38.909,
-    ),
-}
+def _build_biomass_samples() -> Dict[str, BiomassSample]:
+    raw = load_json_config("biomass_samples")
+    return {
+        sid: BiomassSample(sample_id=sid, **row)
+        for sid, row in raw.items()
+        if not sid.startswith("_")
+    }
+
+
+BIOMASS_SAMPLES: Dict[str, BiomassSample] = _build_biomass_samples()
 
 
 def _kgph_to_molph(mass_kg_h: float, mw_g_mol: float) -> float:
@@ -65,4 +53,3 @@ def biomass_to_elemental_moles(sample_id: str, biomass_kg_h: float) -> Dict[str,
         "Ar": 0.0,
         "Ash_kg_h": ash_kg_h,
     }
-

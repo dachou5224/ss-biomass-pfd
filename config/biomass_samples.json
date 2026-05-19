@@ -1,0 +1,21 @@
+{
+  "_comment": "生物质工业/元素分析 (wt%)，mad=收到基水分，ad=干基灰分",
+  "8#": {
+    "mad_pct": 3.72,
+    "ad_pct": 4.76,
+    "cd_pct_dry": 48.0,
+    "hd_pct_dry": 5.96,
+    "nd_pct_dry": 0.65,
+    "sd_pct_dry": 0.041,
+    "od_pct_dry": 40.589
+  },
+  "11#": {
+    "mad_pct": 5.0,
+    "ad_pct": 8.0,
+    "cd_pct_dry": 45.609,
+    "hd_pct_dry": 5.626,
+    "nd_pct_dry": 0.845,
+    "sd_pct_dry": 0.092,
+    "od_pct_dry": 38.909
+  }
+}

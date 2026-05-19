@@ -1,0 +1,49 @@
+{
+  "_comment": "DBI PDF Case-I p2 边界进料（对标 inlet_comparison，与 REFERENCE_CASES 部分重叠）",
+  "Case-1": {
+    "13C-4": {
+      "total_kg_h": 4758.0,
+      "solid_kg_h": 4000.0,
+      "co2_gas_kg_h": 757.7,
+      "proximate_dry": {
+        "ash_pct": 8.0,
+        "C_pct": 45.61,
+        "H_pct": 5.63,
+        "N_pct": 0.84,
+        "S_pct": 0.09,
+        "O_pct": 38.91
+      },
+      "moisture_wet_pct": 5.0
+    },
+    "13HS1-1": {
+      "total_kg_h": 782.1,
+      "h2o_kg_h": 782.1
+    },
+    "13OG2-1": {
+      "total_kg_h": 1343.0,
+      "mol_pct": {
+        "O2": 95.0,
+        "N2": 1.75,
+        "Ar": 3.25
+      }
+    }
+  },
+  "inci_inlet_streams": [
+    "13C-4",
+    "13HS1-1",
+    "13OG2-1"
+  ],
+  "compare_species": [
+    "CO2",
+    "H2O",
+    "O2",
+    "N2",
+    "Ar",
+    "C",
+    "H",
+    "N",
+    "S",
+    "Ash",
+    "O_biomass"
+  ]
+}

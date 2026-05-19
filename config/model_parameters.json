@@ -1,0 +1,284 @@
+{
+  "_meta": {
+    "_comment": "生物质气化原型模型参数。键名带 _comment 的为说明，加载时自动剔除。修改后需重启 Python/Streamlit。"
+  },
+  "model_fixed": {
+    "_comment": "固定模型定量，不在 Streamlit Specs 表暴露",
+    "inci_c_conversion": 0.9
+  },
+  "reactor_specs": {
+    "_comment": "反应器温度 (°C)、系统压力 (bar)、热损失 (MW)、固相去向分配系数",
+    "INCI_T_C": 900.0,
+    "SLAG_T_C": 800.0,
+    "RGPOX_T_C": 1400.0,
+    "SYSTEM_P_BAR": 15.0,
+    "INCI_HEAT_LOSS_MW": 0.1,
+    "RGPOX_HEAT_LOSS_MW": 0.1,
+    "RGPOX_C_CONV": 1.0,
+    "ASH_TO_SLAG_FRAC": 0.6,
+    "CHAR_TO_SLAG_FRAC": 0.55
+  },
+  "chemistry_setup": {
+    "_comment": "化学/热解/受限平衡默认；Field 名与 Streamlit Chemistry 表一致",
+    "Sample": "8#",
+    "Tar Fuel Type": "biomass",
+    "Tar Internal Path": "off",
+    "Pyrolysis Tar Carbon Frac": 0.0,
+    "Tar Formula": "CHO0.082N0.01",
+    "Tar Yield Factor": "0.01 * C_dry",
+    "Tar target H/C": 1.2,
+    "Pyrolysis Scheme": "hamel",
+    "Biomass VM Dry wt%": 75.0,
+    "TA DeltaT WGS (C)": 40.0,
+    "TA DeltaT Meth (C)": 350.0,
+    "WGS Equilibrium Approach Eta": 1.0,
+    "Meth Equilibrium Approach Eta": 1.0,
+    "TA DeltaT OxCO (C)": 0.0,
+    "TA DeltaT OxH2 (C)": 0.0,
+    "TA DeltaT OxCH4 (C)": 0.0,
+    "O2 Purity vol%": 95.0,
+    "O2IN O2 mol%": 95.0,
+    "O2IN N2 mol%": 1.75,
+    "O2IN Ar mol%": 3.25,
+    "H2S/COS split to H2S": 0.961,
+    "Biomass N to NH3 Frac": 0.016,
+    "Biomass S Release Frac": 0.45,
+    "RGPOX CH4 Target @1300C (%)": 0.55,
+    "RGPOX CH4 Target @1400C (%)": 0.1,
+    "RGPOX CH4 Target @1500C (%)": 0.05,
+    "Constraint Mode": "Restricted Equilibrium"
+  },
+  "defaults": {
+    "_comment": "build_*_df 默认工况",
+    "case_id": "Case-1",
+    "biomass_sample_fallback": "8#"
+  },
+  "physical_constants": {
+    "_comment": "原子量与分子量 (g/mol)；与 species 模块一致",
+    "atomic_weight": {
+      "C": 12.011,
+      "H": 1.008,
+      "O": 15.999,
+      "N": 14.007,
+      "S": 32.06,
+      "Ar": 39.948
+    },
+    "molecular_weight": {
+      "CO": 28.01,
+      "H2": 2.016,
+      "CO2": 44.009,
+      "CH4": 16.043,
+      "H2O": 18.015,
+      "O2": 31.998,
+      "N2": 28.014,
+      "Ar": 39.948,
+      "H2S": 34.081,
+      "COS": 60.075,
+      "NH3": 17.031
+    },
+    "celsius_to_kelvin_offset": 273.15
+  },
+  "species": {
+    "_comment": "参与平衡与组分汇总的物种列表",
+    "major": [
+      "CO",
+      "H2",
+      "CO2",
+      "CH4",
+      "H2O",
+      "O2",
+      "N2",
+      "Ar"
+    ],
+    "minor": [
+      "H2S",
+      "COS",
+      "NH3"
+    ],
+    "inci_major": [
+      "CO",
+      "H2",
+      "CO2",
+      "CH4"
+    ],
+    "inci_wet_major": [
+      "CO",
+      "H2",
+      "CO2",
+      "CH4",
+      "H2O"
+    ],
+    "unmodelled_wet": [
+      "HCN",
+      "HCl"
+    ],
+    "gibbs_elements": [
+      "C",
+      "H",
+      "O",
+      "N",
+      "Ar"
+    ]
+  },
+  "atom_count": {
+    "_comment": "物种元素计量 (mol 原子 / mol 物种)",
+    "CO": {
+      "C": 1,
+      "O": 1
+    },
+    "H2": {
+      "H": 2
+    },
+    "CO2": {
+      "C": 1,
+      "O": 2
+    },
+    "CH4": {
+      "C": 1,
+      "H": 4
+    },
+    "H2O": {
+      "H": 2,
+      "O": 1
+    },
+    "O2": {
+      "O": 2
+    },
+    "N2": {
+      "N": 2
+    },
+    "Ar": {
+      "Ar": 1
+    },
+    "H2S": {
+      "H": 2,
+      "S": 1
+    },
+    "COS": {
+      "C": 1,
+      "O": 1,
+      "S": 1
+    },
+    "NH3": {
+      "N": 1,
+      "H": 3
+    }
+  },
+  "tar_models": {
+    "_comment": "Tar 双 surrogate 混合（Hamel 风格）",
+    "surrogate_formula": {
+      "C6H6": [
+        6,
+        6
+      ],
+      "C10H8": [
+        10,
+        8
+      ],
+      "C16H34": [
+        16,
+        34
+      ]
+    },
+    "target_hc_ratio": {
+      "coal": 0.856,
+      "biomass": 1.364
+    },
+    "surrogates_by_fuel": {
+      "coal": [
+        "C6H6",
+        "C10H8"
+      ],
+      "biomass": [
+        "C10H8",
+        "C16H34"
+      ]
+    },
+    "default_fuel_type": "biomass",
+    "blend_tol": 1e-12,
+    "carbon_floor": 1e-12
+  },
+  "pyrolysis": {
+    "_comment": "热解方案默认（与 chemistry_setup 重复项以 chemistry 表为准）",
+    "default_scheme": "hamel",
+    "max_tar_carbon_frac": 0.9,
+    "mass_threshold": 1e-12
+  },
+  "equilibrium": {
+    "_comment": "受限平衡 / TA 求解与压力比约定",
+    "pressure_ratio_bar": 0.1,
+    "ta_min_t_k": 350.0,
+    "extent_solver_max_iter": 80,
+    "extent_solver_tol": 1e-10,
+    "methanation_h2_per_ch4": 3.0,
+    "o2_purity_vol_clip": [
+      0.5,
+      1.0
+    ],
+    "o2_impurity_n2_frac_of_impurity": 0.35,
+    "o2_impurity_ar_frac_of_impurity": 0.65
+  },
+  "gibbs_solver": {
+    "_comment": "Gibbs 多起点 SLSQP",
+    "multistart_ch4_shift_frac": 0.7,
+    "multistart_ch4_to_co2_frac": 0.4,
+    "multistart_ch4_to_h2_frac": 0.3,
+    "multistart_co_shift_frac": 0.5,
+    "flow_floor": 1e-14,
+    "mole_fraction_floor": 1e-18,
+    "slsqp_maxiter": 800,
+    "slsqp_ftol": 1e-10,
+    "balance_residual_tol": 1e-05,
+    "lsq_fallback_residual_tol": 1e-06
+  },
+  "slag": {
+    "_comment": "渣线残碳目标：残碳质量 ≈ 灰渣质量 / ratio",
+    "target_residual_c_ash_mass_ratio": 9.0
+  },
+  "rgpox": {
+    "_comment": "RGPOX 经验修正",
+    "ash_extra_biomass_frac": 0.02,
+    "ch4_target_temperatures_c": [
+      1300.0,
+      1400.0,
+      1500.0
+    ]
+  },
+  "numerical": {
+    "_comment": "容差、舍入与对标阈值",
+    "reference_feed_match_tol_kg_h": 0.1,
+    "inlet_compare_min_kg_h": 0.05,
+    "trace_species_floor": 1e-09,
+    "mass_closure_denom_floor": 1e-09,
+    "element_balance_denom_floor": 1e-12,
+    "inci_validation_wet_rmsd_limit_case1": 1.22,
+    "inci_validation_dry_rmsd_limit_legacy": 3.5,
+    "vol_pct_round_digits": 3,
+    "mass_round_digits": 3,
+    "restricted_equilibrium_zero_tol": 1e-09
+  },
+  "audit": {
+    "_comment": "INCI 质量审计",
+    "inci_elements": [
+      "C",
+      "H",
+      "O",
+      "N",
+      "S",
+      "Ar"
+    ],
+    "feed_stream_keys": [
+      "Biomass",
+      "CIN",
+      "O2IN",
+      "H2OIN",
+      "N2IN",
+      "CO2IN"
+    ]
+  },
+  "paths": {
+    "_comment": "参考数据 CSV 路径（PDF 提取，本地-only，见 data/reference/README.md）",
+    "inci_streams_csv": "data/reference/inci_streams.csv",
+    "dbi_mass_balance_csv": "data/reference/dbi_inci_mass_balance_case1.csv"
+  }
+}
