@@ -21,7 +21,7 @@ def main() -> None:
     path = write_simulator_workbook(args.out, case_id=args.case, run_simulation=not args.no_run)
     print(f"已写入 {path}")
     print("VBA 内部参数: export/vba/ModelInternals.bas")
-    print("标注 PFD: export/assets/（若系统有 rsvg-convert 或 macOS qlmanage 则含 PNG）")
+    print("流程图: export/assets/流程示意图.png → Excel PFD 页")
 
 
 if __name__ == "__main__":

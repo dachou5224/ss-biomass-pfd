@@ -82,10 +82,28 @@ def build_thermo_call_trace() -> List[Dict[str, str]]:
             "Purpose": "Convert tar to C/H2/N2/O2 pseudo-products",
         },
         {
+            "Module": "RGPOX Volatile Pyrolysis",
+            "Thermo Call": "pyrolyze_rgpox_volatiles + decompose_tar_mass_to_elements",
+            "Method": "Surrogate tar C/H + empirical formula O/N → elemental feed",
+            "Purpose": "Crack 15PGI-1 entrained volatiles before Gibbs",
+        },
+        {
+            "Module": "RGPOX Restricted Equilibrium",
+            "Thermo Call": "_apply_restricted_equilibrium_ta",
+            "Method": "WGS + Meth + Ox TA after 1400°C Gibbs",
+            "Purpose": "Align 15PGR-1 ante-quench wet composition vs DBI",
+        },
+        {
+            "Module": "RGPOX Quench",
+            "Thermo Call": "apply_rgpox_quench + quench_syngas",
+            "Method": "No reaction; saturation H2O at T_out (gasifier-model heat balance)",
+            "Purpose": "Align 15PGR-2 post-quench wet composition vs DBI",
+        },
+        {
             "Module": "RGPOX (RGibbs)",
-            "Thermo Call": "get_gibbs_free_energy + CH4 target clamp + minor sulfur split",
-            "Method": f"Shomate baseline ({THERMO_BASELINE_VERSION}) + constrained Gibbs + empirical minor allocation",
-            "Purpose": "High-temperature partial oxidation equilibrium",
+            "Thermo Call": "get_gibbs_free_energy + solve_gibbs_major",
+            "Method": f"Shomate baseline ({THERMO_BASELINE_VERSION}) + minimum Gibbs @ DBI fixed T",
+            "Purpose": "High-temperature partial oxidation equilibrium (1400°C)",
         },
     ]
 

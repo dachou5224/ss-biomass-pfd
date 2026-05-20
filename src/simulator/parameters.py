@@ -50,6 +50,7 @@ def model_parameters() -> Dict[str, Any]:
 
 
 INCI_C_CONVERSION: float = model_parameters()["model_fixed"]["inci_c_conversion"]
+RGPOX_T_C: float = float(model_parameters()["model_fixed"]["rgpox_t_c"])
 DEFAULT_REACTOR_SPECS: Dict[str, float] = dict(model_parameters()["reactor_specs"])
 DEFAULT_CHEMISTRY_SETUP: Dict[str, Any] = dict(model_parameters()["chemistry_setup"])
 DEFAULT_CASE_ID: str = model_parameters()["defaults"]["case_id"]
@@ -80,6 +81,7 @@ EQUILIBRIUM_CFG: Dict[str, Any] = dict(model_parameters()["equilibrium"])
 GIBBS_SOLVER_CFG: Dict[str, Any] = dict(model_parameters()["gibbs_solver"])
 SLAG_CFG: Dict[str, Any] = dict(model_parameters()["slag"])
 RGPOX_CFG: Dict[str, Any] = dict(model_parameters()["rgpox"])
+QUENCH_CFG: Dict[str, Any] = dict(model_parameters()["quench"])
 NUMERICAL_CFG: Dict[str, Any] = dict(model_parameters()["numerical"])
 AUDIT_CFG: Dict[str, Any] = dict(model_parameters()["audit"])
 PATHS_CFG: Dict[str, str] = dict(model_parameters()["paths"])
@@ -97,6 +99,18 @@ def dbi_inlet_config() -> Dict[str, Any]:
 
 def dbi_case1_inlet() -> Dict[str, Any]:
     return dict(dbi_inlet_config()["Case-1"])
+
+
+def dbi_rgpox_inlet_config() -> Dict[str, Any]:
+    return load_json_config("dbi_rgpox_inlet")
+
+
+def has_dbi_rgpox_inlet_config() -> bool:
+    return (CONFIG_DIR / "dbi_rgpox_inlet.json").is_file()
+
+
+def dbi_rgpox_case1_inlet() -> Dict[str, Any]:
+    return dict(dbi_rgpox_inlet_config()["Case-1"])
 
 
 INCI_INLET_STREAMS: Tuple[str, ...] = tuple(dbi_inlet_config()["inci_inlet_streams"])

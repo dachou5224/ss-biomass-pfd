@@ -10,7 +10,7 @@ from .parameters import (
     feeds_to_tuples,
     load_json_config,
 )
-from .reference_streams import attach_inci_stream_to_expected
+from .reference_streams import attach_inci_stream_to_expected, attach_rgpox_stream_to_expected
 
 
 def _build_reference_cases() -> dict:
@@ -25,10 +25,8 @@ def _build_reference_cases() -> dict:
             "expected": dict(payload["expected"]),
         }
     for case_id in cases:
-        cases[case_id]["expected"] = attach_inci_stream_to_expected(
-            cases[case_id]["expected"],
-            case_id,
-        )
+        expected = attach_inci_stream_to_expected(cases[case_id]["expected"], case_id)
+        cases[case_id]["expected"] = attach_rgpox_stream_to_expected(expected, case_id)
     return cases
 
 

@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-from .backend import _kg_to_mol_h
 from .data import REFERENCE_CASES, build_chem_df
 from .elemental import BIOMASS_SAMPLES, biomass_to_elemental_moles
 from .feed_streams import inci_o2_stream_species_kg_h

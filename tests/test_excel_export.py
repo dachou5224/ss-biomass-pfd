@@ -28,6 +28,17 @@ from simulator.spreadsheet_ui import (
 from simulator.data import build_chem_df, build_feed_df, build_specs_df
 
 
+def test_resolve_pfd_workbook_image_prefers_official_diagram(tmp_path, monkeypatch):
+    from simulator.pfd_diagram import PFD_WORKBOOK_IMAGE, resolve_pfd_workbook_image
+
+    official = tmp_path / "流程示意图.png"
+    official.write_bytes(b"fake")
+    fallback = tmp_path / "pfd_Case-1.png"
+    fallback.write_bytes(b"fake2")
+    monkeypatch.setattr("simulator.pfd_diagram.PFD_WORKBOOK_IMAGE", official)
+    assert resolve_pfd_workbook_image(annotated_png=fallback) == official
+
+
 def test_build_simulator_workbook_four_main_sheets():
     data = build_simulator_workbook(case_id="Case-1", run_simulation=True, write_vba=False)
     assert len(data) > 5000

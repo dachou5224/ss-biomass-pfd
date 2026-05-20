@@ -198,8 +198,13 @@ with tab_result:
         with c_pox:
             st.markdown("**RGPOX Composition (dry vol%)**")
             st.dataframe(_dict_to_df("NICE_SIM", res.pox_comp_dry_vol_pct), hide_index=True, use_container_width=True)
-            st.markdown("**RGPOX Composition (wet vol%, incl. H2O)**")
+            st.markdown("**RGPOX Composition (wet vol%, incl. H2O, 15PGR-2 急冷后)**")
             st.dataframe(_dict_to_df("NICE_SIM", res.pox_comp_wet_vol_pct), hide_index=True, use_container_width=True)
+            if res.quench_t_out_c is not None:
+                st.caption(
+                    f"急冷出口 T≈{res.quench_t_out_c:.1f}°C；"
+                    f"蒸发补水 {res.quench_h2o_added_kg_h or 0:.0f} kg/h"
+                )
             st.markdown("**RGPOX Minor Species (dry vol%)**")
             st.dataframe(_dict_to_df("NICE_SIM", res.pox_minor_vol_pct), hide_index=True, use_container_width=True)
 
@@ -256,10 +261,16 @@ with tab_result:
                 st.dataframe(pox_expected_df, hide_index=True, use_container_width=True)
                 st.markdown("**RGPOX vs DBI (wet, incl. H2O)**")
                 st.dataframe(pox_expected_wet_df, hide_index=True, use_container_width=True)
-                if res.rmsd_pox_pct is not None:
-                    st.caption(f"RMSD: {res.rmsd_pox_pct:.2f}%")
+                if res.rmsd_pox_primary_pct is not None:
+                    ante = res.rmsd_pox_wet_ante_pct
+                    if ante is not None:
+                        st.caption(
+                            f"RMSD (15PGR-1 反应区 @1400°C, 对标目标): {res.rmsd_pox_primary_pct:.2f}%"
+                        )
+                    else:
+                        st.caption(f"RMSD (湿基主组分): {res.rmsd_pox_primary_pct:.2f}%")
                 if res.rmsd_pox_wet_pct is not None:
-                    st.caption(f"RMSD (wet): {res.rmsd_pox_wet_pct:.2f}%")
+                    st.caption(f"RMSD (15PGR-2 急冷后, 参考): {res.rmsd_pox_wet_pct:.2f}%")
         else:
             st.info("Current feed does not exactly match Case-1/2/3 signature. Displaying model-predicted simulation output.")
 
@@ -381,6 +392,57 @@ with tab_result:
                     use_container_width=True,
                 )
                 st.caption("详见 doc/inci-mass-balance-audit.md。湿基 H2O 偏差主因：TA 消耗 H2O，非元素丢失。")
+
+        if res.rgpox_inlet_audit and res.matched_case:
+            pox_in = res.rgpox_inlet_audit
+            with st.expander("RGPOX 进料对标（TA 调参前门禁）", expanded=res.matched_case == "Case-1"):
+                gate_ok = pox_in.ready_for_ta_tuning
+                st.metric(
+                    "TA 调参门禁",
+                    "通过" if gate_ok else "未通过",
+                    delta=f"湿基 RMSD {pox_in.gas_wet_rmsd_pct:.2f}%" if pox_in.gas_wet_rmsd_pct else None,
+                )
+                if pox_in.blockers:
+                    st.warning("阻塞项（须先闭合再调 RGPOX TA）：")
+                    for msg in pox_in.blockers:
+                        st.markdown(f"- {msg}")
+                st.markdown("**15PGI-1 / 15OG1 质量 (kg/h)**")
+                st.dataframe(
+                    pd.DataFrame(
+                        [
+                            {
+                                "Stream": r.stream_id,
+                                "Line": r.component,
+                                "DBI": round(r.dbi_kg_h, 2),
+                                "Model": round(r.model_kg_h, 2),
+                                "Delta": round(r.delta_kg_h, 2),
+                            }
+                            for r in pox_in.mass_rows
+                        ]
+                    ),
+                    hide_index=True,
+                    use_container_width=True,
+                )
+                st.markdown("**15PGI-1 气相湿基 mol%**")
+                st.dataframe(
+                    pd.DataFrame(
+                        [
+                            {
+                                "Species": r.component,
+                                "DBI": round(r.dbi_kg_h, 4),
+                                "Model": round(r.model_kg_h, 4),
+                                "Delta_pp": round(r.delta_kg_h, 4),
+                            }
+                            for r in pox_in.composition_rows
+                        ]
+                    ),
+                    hide_index=True,
+                    use_container_width=True,
+                )
+                st.caption(
+                    "DBI 来源：Unit 15 PDF p2（15PGI-1/15OG1）；"
+                    "组成与 13PGI-1 同源。命令行：python3 scripts/audit_rgpox_inlet.py"
+                )
 
         st.markdown("**Element Balance Check (mol/h)**")
         st.dataframe(

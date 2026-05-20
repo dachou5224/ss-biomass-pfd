@@ -13,7 +13,6 @@ from .parameters import DEFAULT_REACTOR_SPECS, PROJECT_ROOT, load_json_config
 USER_OPERATING_SPECS: tuple[str, ...] = (
     "INCI_T_C",
     "SLAG_T_C",
-    "RGPOX_T_C",
     "SYSTEM_P_BAR",
 )
 
@@ -34,6 +33,13 @@ USER_CHEMISTRY_FIELDS: tuple[str, ...] = (
     "TA DeltaT OxCO (C)",
     "TA DeltaT OxH2 (C)",
     "TA DeltaT OxCH4 (C)",
+    "RGPOX TA DeltaT WGS (C)",
+    "RGPOX TA DeltaT Meth (C)",
+    "RGPOX WGS Equilibrium Approach Eta",
+    "RGPOX Meth Equilibrium Approach Eta",
+    "RGPOX TA DeltaT OxCO (C)",
+    "RGPOX TA DeltaT OxH2 (C)",
+    "RGPOX TA DeltaT OxCH4 (C)",
     "O2 Purity vol%",
     "O2IN O2 mol%",
     "O2IN N2 mol%",
@@ -41,9 +47,6 @@ USER_CHEMISTRY_FIELDS: tuple[str, ...] = (
     "H2S/COS split to H2S",
     "Biomass N to NH3 Frac",
     "Biomass S Release Frac",
-    "RGPOX CH4 Target @1300C (%)",
-    "RGPOX CH4 Target @1400C (%)",
-    "RGPOX CH4 Target @1500C (%)",
 )
 
 # 留在 VBA「ModelInternals」块，不出现在前端 Sheet

@@ -17,6 +17,7 @@ def pdf_reference_file(name: str) -> Path:
 HAS_INCI_STREAMS_CSV = pdf_reference_file("inci_streams.csv").is_file()
 HAS_DBI_STREAM_TABLE_CSV = pdf_reference_file("dbi_inci_stream_table_case1.csv").is_file()
 HAS_DBI_MASS_BALANCE_CSV = pdf_reference_file("dbi_inci_mass_balance_case1.csv").is_file()
+HAS_DBI_RGPOX_INLET_JSON = (PROJECT_ROOT / "config" / "dbi_rgpox_inlet.json").is_file()
 
 requires_inci_streams_csv = pytest.mark.skipif(
     not HAS_INCI_STREAMS_CSV,
@@ -29,4 +30,8 @@ requires_dbi_stream_table_csv = pytest.mark.skipif(
 requires_dbi_mass_balance_csv = pytest.mark.skipif(
     not HAS_DBI_MASS_BALANCE_CSV,
     reason="缺少 data/reference/dbi_inci_mass_balance_case1.csv（PDF 提取，不纳入 Git）",
+)
+requires_dbi_rgpox_inlet_json = pytest.mark.skipif(
+    not HAS_DBI_RGPOX_INLET_JSON,
+    reason="缺少 config/dbi_rgpox_inlet.json（本地 DBI 提取，不纳入 Git）",
 )

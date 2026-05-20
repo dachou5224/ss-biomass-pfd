@@ -26,5 +26,9 @@ python3 scripts/extract_dbi_inci_stream_table.py
 | `inci_streams.csv` | 13PGI-1 湿基 mol/mol 全组分 |
 | `dbi_inci_mass_balance_case1.csv` | INCI 边界质量衡算 |
 | `dbi_inci_inlet_composition_case1.csv` | 边界进料组分 |
+| `dbi_rgpox_mass_balance_case1.csv` | RGPOX 边界质量衡算（15PGI-1/15OG1） |
+| `rgpox_streams.csv` | 15PGR-2 湿基 mol/mol 全组分 |
 
 克隆仓库后若缺少上述文件，对标相关测试会自动跳过；本地有 PDF 时按上表生成即可。
+
+RGPOX 进料门禁：`python3 scripts/audit_rgpox_inlet.py --case Case-1`（TA 调参前须通过）。

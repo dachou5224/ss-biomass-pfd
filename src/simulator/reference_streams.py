@@ -14,6 +14,7 @@ import pandas as pd
 from .parameters import INCI_WET_MAJOR_KEYS, PATHS_CFG, PROJECT_ROOT
 
 DEFAULT_INCI_STREAMS_CSV = PROJECT_ROOT / PATHS_CFG["inci_streams_csv"]
+DEFAULT_RGPOX_STREAMS_CSV = PROJECT_ROOT / PATHS_CFG["rgpox_streams_csv"]
 DEFAULT_DBI_MASS_BALANCE_CSV = PROJECT_ROOT / PATHS_CFG["dbi_mass_balance_csv"]
 
 
@@ -93,6 +94,69 @@ def attach_inci_stream_to_expected(
     out["inci_comp_dry_full"] = dict(stream["dry_full_mol_pct"])
     out["inci_comp_wet"] = dict(stream["wet_major_mol_pct"])
     out["inci_stream_meta"] = dict(stream["meta"])
+    return out
+
+
+@lru_cache(maxsize=4)
+def _load_rgpox_streams_csv(csv_path: str) -> pd.DataFrame:
+    path = Path(csv_path)
+    if not path.is_file():
+        raise FileNotFoundError(f"RGPOX 参考物流表不存在: {path}")
+    return pd.read_csv(path)
+
+
+def load_rgpox_stream_reference(
+    case_id: str,
+    *,
+    csv_path: Path | str | None = None,
+    stream_id: str = "15PGR-2",
+    basis: str = "wet_mol_pct",
+) -> Optional[Dict[str, Any]]:
+    """按 case 读取 RGPOX 出口参考物流（默认 15PGR-2 湿基）。"""
+    path = Path(csv_path) if csv_path is not None else DEFAULT_RGPOX_STREAMS_CSV
+    if not path.is_file():
+        return None
+    df = _load_rgpox_streams_csv(str(path.resolve()))
+    mask = (df["case"] == case_id) & (df["stream_id"] == stream_id) & (df["basis"] == basis)
+    subset = df.loc[mask]
+    if subset.empty:
+        return None
+
+    row0 = subset.iloc[0]
+    meta = {
+        "stream_id": str(row0["stream_id"]),
+        "description": str(row0["description"]),
+        "temperature_c": float(row0["temperature_c"]),
+        "pressure_mpa_a": float(row0["pressure_mpa_a"]),
+        "gas_flow_kg_h": float(row0["gas_flow_kg_h"]),
+        "total_flow_kg_h": float(row0.get("total_flow_kg_h", row0["gas_flow_kg_h"])),
+        "source": str(row0["source"]),
+    }
+    wet_mol_pct = {str(r["component"]): float(r["mol_pct"]) for _, r in subset.iterrows()}
+    return {
+        "meta": meta,
+        "wet_mol_pct": wet_mol_pct,
+        "dry_full_mol_pct": wet_mol_pct_to_dry_full(wet_mol_pct),
+        "wet_major_mol_pct": wet_mol_pct_major_subset(wet_mol_pct),
+    }
+
+
+def attach_rgpox_stream_to_expected(
+    expected: Dict[str, Any],
+    case_id: str,
+    *,
+    csv_path: Path | str | None = None,
+) -> Dict[str, Any]:
+    """将 CSV 中的 RGPOX 湿基表合并进 expected（本地 CSV 缺失时保留 JSON 内 pox_comp_wet）。"""
+    stream = load_rgpox_stream_reference(case_id, csv_path=csv_path)
+    if stream is None:
+        return expected
+    out = dict(expected)
+    out["pox_comp_wet_full"] = dict(stream["wet_mol_pct"])
+    out["pox_comp_dry_full"] = dict(stream["dry_full_mol_pct"])
+    wet_major = dict(stream["wet_major_mol_pct"])
+    out["pox_comp_wet"] = wet_major
+    out["pox_stream_meta"] = dict(stream["meta"])
     return out
 
 

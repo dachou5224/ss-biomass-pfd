@@ -361,7 +361,7 @@ def format_workbook(
                 ws,
                 lay.hint_row,
                 max(lay.col_end, 8),
-                "流程图见左侧；流股卡片在右侧，数值随 Model Output 更新",
+                "流程图：export/assets/流程示意图.png；右侧流股卡片随 Model Output 更新",
             )
         apply_column_widths(
             ws,

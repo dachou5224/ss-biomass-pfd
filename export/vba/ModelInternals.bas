@@ -5,6 +5,7 @@ Attribute VB_Name = "ModelInternals"
 
 ' ===== MODEL_FIXED =====
 Public Const inci_c_conversion As Double = 0.9
+Public Const rgpox_t_c As Double = 1400.0
 
 ' ===== REACTOR_INTERNALS =====
 Public Const INCI_HEAT_LOSS_MW As Double = 0.1

@@ -118,6 +118,9 @@ class SimulationResult:
     pox_comp_dry_vol_pct: Dict[str, float]
     inci_comp_wet_vol_pct: Dict[str, float]
     pox_comp_wet_vol_pct: Dict[str, float]
+    pox_comp_wet_ante_vol_pct: Dict[str, float]
+    quench_t_out_c: float | None
+    quench_h2o_added_kg_h: float | None
     inci_comp_dry_full_vol_pct: Dict[str, float]
     inci_comp_wet_full_vol_pct: Dict[str, float]
     inci_minor_vol_pct: Dict[str, float]
@@ -127,11 +130,14 @@ class SimulationResult:
     rmsd_pox_pct: float | None
     rmsd_inci_wet_pct: float | None
     rmsd_pox_wet_pct: float | None
+    rmsd_pox_wet_ante_pct: float | None
     rmsd_inci_dry_full_pct: float | None
     rmsd_inci_wet_full_pct: float | None
     rmsd_inci_primary_pct: float | None  # 湿基主组分 + H2O；无湿基参考时回退干基四主
+    rmsd_pox_primary_pct: float | None  # 湿基主组分；Gibbs 阶段优先 pox_comp_wet_ante (15PGR-1)
     unit_trace: List[UnitResult]
     thermo_trace: List[Dict[str, str]]
     element_balance: List[ElementBalance]
     inci_mass_audit: InciMassAudit | None
+    rgpox_inlet_audit: "RgpoxInletAudit | None"
     matched_case: str | None

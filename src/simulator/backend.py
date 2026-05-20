@@ -19,10 +19,21 @@ from .parameters import (
     EQUILIBRIUM_CFG,
     MOLECULAR_WEIGHT,
     NUMERICAL_CFG,
+    QUENCH_CFG,
     RGPOX_CFG,
+    RGPOX_T_C,
     SLAG_CFG,
 )
 from .pyrolysis import allocate_pyrolysis_products_elemental
+from .rgpox import (
+    RGPOX_EQUATION_BASIS,
+    build_rgpox_inlet_bundle,
+    pyrolyze_rgpox_volatiles,
+    resolve_entrained_solid,
+    rgpox_stage_notes,
+    solve_rgpox_gibbs_equilibrium,
+)
+from .rgpox_quench import apply_rgpox_quench
 from .species import (
     INCI_DRY_SPECIES,
     INCI_MAJOR_KEYS,
@@ -163,7 +174,7 @@ def _equilibrium_constant_ox_ch4(t_k: float) -> float:
     return float(np.exp(-delta_g / (R_CONST * t_k)))
 
 
-def _apply_inci_temperature_approach(
+def _apply_restricted_equilibrium_ta(
     flow: Dict[str, float],
     t_gibbs_k: float,
     p_bar: float,
@@ -353,6 +364,9 @@ def _apply_inci_temperature_approach(
     for key in ("CO", "H2", "CO2", "CH4", "H2O", "O2"):
         tuned[key] = max(st[key], eps)
     return tuned
+
+
+_apply_inci_temperature_approach = _apply_restricted_equilibrium_ta
 
 
 def _apply_inci_gas_oxidation(
@@ -589,13 +603,20 @@ def run_fixed_temperature_simulation(
     dt_ox_co_c = float(chem.get("TA DeltaT OxCO (C)", "0.0"))
     dt_ox_h2_c = float(chem.get("TA DeltaT OxH2 (C)", "0.0"))
     dt_ox_ch4_c = float(chem.get("TA DeltaT OxCH4 (C)", "0.0"))
+    pox_dt_wgs_c = float(chem.get("RGPOX TA DeltaT WGS (C)", "0.0"))
+    pox_dt_meth_c = float(chem.get("RGPOX TA DeltaT Meth (C)", "0.0"))
+    pox_eta_wgs = float(chem.get("RGPOX WGS Equilibrium Approach Eta", "1.0"))
+    pox_eta_meth = float(chem.get("RGPOX Meth Equilibrium Approach Eta", "1.0"))
+    pox_dt_ox_co_c = float(chem.get("RGPOX TA DeltaT OxCO (C)", "0.0"))
+    pox_dt_ox_h2_c = float(chem.get("RGPOX TA DeltaT OxH2 (C)", "0.0"))
+    pox_dt_ox_ch4_c = float(chem.get("RGPOX TA DeltaT OxCH4 (C)", "0.0"))
     tar_fuel_type = chem.get("Tar Fuel Type", "biomass").strip().lower()
     tar_internal_flag = chem.get("Tar Internal Path", "off").strip().lower() in ("on", "true", "1", "yes")
     pyro_tar_c_frac = float(chem.get("Pyrolysis Tar Carbon Frac", "0.0"))
     p_bar = float(specs.get("SYSTEM_P_BAR", 15.0))
     t_inci_k = float(specs.get("INCI_T_C", 900.0)) + CELSIUS_TO_KELVIN_OFFSET
     t_slag_k = float(specs.get("SLAG_T_C", 800.0)) + CELSIUS_TO_KELVIN_OFFSET
-    t_pox_k = float(specs.get("RGPOX_T_C", 1400.0)) + CELSIUS_TO_KELVIN_OFFSET
+    t_pox_k = RGPOX_T_C + CELSIUS_TO_KELVIN_OFFSET
     inci_c_conv = INCI_C_CONVERSION
     pox_c_conv = np.clip(float(specs.get("RGPOX_C_CONV", 1.0)), 0.0, 1.0)
     ash_to_slag = np.clip(float(specs.get("ASH_TO_SLAG_FRAC", 0.60)), 0.0, 1.0)
@@ -665,7 +686,7 @@ def run_fixed_temperature_simulation(
     }
     inci_major = solve_gibbs_major(inci_elem, MAJOR_SPECIES, t_inci_k, p_bar)
     h2o_after_gibbs_mol_h = max(inci_major.species_flow_mol_h.get("H2O", 0.0), 0.0)
-    inci_major_flow = _apply_inci_temperature_approach(
+    inci_major_flow = _apply_restricted_equilibrium_ta(
         dict(inci_major.species_flow_mol_h),
         t_gibbs_k=t_inci_k,
         p_bar=p_bar,
@@ -720,42 +741,66 @@ def run_fixed_temperature_simulation(
     # 13LBS-1：去 Unit 14 的渣流（灰分渣 + 目标残碳；与 DBI inci_slag_kg_h 对标）
     slag_to_u14_kg_h = ash_slag_kg_h + target_residual_c_kg_h
 
-    # RGPOX: INCI 主气相进 Gibbs；NH3/H2S/COS 作为微量组分直通（不在 POX 内重分配）
-    tar_crack = {
-        "C": pyro_split.tar_allocation.carbon_mol_h if tar_internal_flag else 0.0,
-        "H": pyro_split.tar_allocation.hydrogen_mol_h if tar_internal_flag else 0.0,
-    }
-    inci_major_for_pox = {k: inci_outlet_flow.get(k, 0.0) for k in MAJOR_SPECIES}
-    inci_trace_minor = {k: inci_outlet_flow.get(k, 0.0) for k in MINOR_SPECIES}
-    pox_elem = elemental_totals_from_species(inci_major_for_pox, ["C", "H", "O", "N", "Ar"])
-    pox_elem["C"] += char_to_pox_mol * pox_c_conv + tar_crack["C"]
-    pox_elem["H"] += tar_crack["H"]
-    pox_elem["O"] += 2.0 * _kg_to_mol_h(feed.get("O2POX", 0.0), 31.998)
+    inci_tar_kg_h = tar_allocation_mass_kg_h(pyro_split.tar_allocation)
+    matched_case = _match_reference_case(feed, sample)
+    tar_fuel = chem.get("Tar Fuel Type", "biomass").strip().lower()
+    if tar_fuel not in ("coal", "biomass"):
+        tar_fuel = "biomass"
+    tar_hc = _chem_float("Tar target H/C")
+    tar_formula = chem.get("Tar Formula", DEFAULT_CHEMISTRY_SETUP.get("Tar Formula", "CHO0.082N0.01"))
+
+    # RGPOX：INCI 气相继承 + 15PGI-1 夹带固相/挥发分 + 1400°C 最小 Gibbs
+    entrained = resolve_entrained_solid(
+        case_id=matched_case,
+        char_to_pox_kg_h=char_to_pox_kg_h,
+        ash_to_pox_kg_h=ash_pox_kg_h,
+    )
+    volatile_pyro = pyrolyze_rgpox_volatiles(
+        inci_tar_kg_h,
+        tar_formula=str(tar_formula),
+        tar_fuel_type=tar_fuel,  # type: ignore[arg-type]
+        target_hc_ratio=tar_hc,
+    )
     pox_o2_mol = _kg_to_mol_h(feed.get("O2POX", 0.0), 31.998)
     pox_n2_imp, pox_ar_imp = _o2_impurity_moles(pox_o2_mol, o2_purity)
-    pox_elem["N"] += 2.0 * pox_n2_imp
-    pox_elem["Ar"] += pox_ar_imp
+    pox_inlet = build_rgpox_inlet_bundle(
+        inci_outlet_flow,
+        entrained=entrained,
+        volatile_pyro=volatile_pyro,
+        char_conversion=pox_c_conv,
+        o2_pox_mol_h=pox_o2_mol,
+        o2_n2_imp_mol_h=pox_n2_imp,
+        o2_ar_imp_mol_h=pox_ar_imp,
+    )
+    pox_stage = solve_rgpox_gibbs_equilibrium(
+        pox_inlet,
+        p_bar=p_bar,
+        t_c=RGPOX_T_C,
+        char_conversion=pox_c_conv,
+    )
+    pox_major_flow = _apply_restricted_equilibrium_ta(
+        dict(pox_stage.major_flow_mol_h),
+        t_gibbs_k=t_pox_k,
+        p_bar=p_bar,
+        dt_wgs_c=pox_dt_wgs_c,
+        dt_meth_c=pox_dt_meth_c,
+        eta_wgs=pox_eta_wgs,
+        eta_meth=pox_eta_meth,
+        dt_ox_co_c=pox_dt_ox_co_c,
+        dt_ox_h2_c=pox_dt_ox_h2_c,
+        dt_ox_ch4_c=pox_dt_ox_ch4_c,
+    )
+    pox_minor = dict(pox_stage.minor_flow_mol_h)
+    pox_outlet_flow_ante = {**pox_major_flow, **pox_minor}
 
-    pox_major = solve_gibbs_major(pox_elem, MAJOR_SPECIES, t_pox_k, p_bar)
-    pox_major_flow = dict(pox_major.species_flow_mol_h)
-    pox_minor = dict(inci_trace_minor)
-
-    # CH4 empirical clamp by temperature.
-    ch4_target_lookup = {
-        1300.0: float(chem.get("RGPOX CH4 Target @1300C (%)", "0.55")),
-        1400.0: float(chem.get("RGPOX CH4 Target @1400C (%)", "0.1")),
-        1500.0: float(chem.get("RGPOX CH4 Target @1500C (%)", "0.05")),
-    }
-    t_c = float(specs.get("RGPOX_T_C", 1400.0))
-    if t_c in ch4_target_lookup:
-        dry_total = sum(pox_major_flow.get(s, 0.0) for s in MAJOR_SPECIES if s != "H2O")
-        target_ch4 = dry_total * ch4_target_lookup[t_c] / 100.0
-        delta = pox_major_flow.get("CH4", 0.0) - target_ch4
-        if delta > 0.0:
-            pox_major_flow["CH4"] = max(target_ch4, 1e-9)
-            pox_major_flow["CO"] += delta
-            pox_major_flow["H2"] += 3.0 * delta
-            pox_major_flow["H2O"] = max(pox_major_flow.get("H2O", 0.0) - delta, 1e-9)
+    quench_result = apply_rgpox_quench(
+        pox_outlet_flow_ante,
+        species=INCI_WET_SPECIES,
+        t_gas_in_c=RGPOX_T_C,
+        p_mpa_abs=float(QUENCH_CFG.get("p_total_mpa_abs", p_bar / 10.0)),
+        cfg=QUENCH_CFG,
+    )
+    pox_outlet_flow = dict(quench_result.flow_mol_h_post)
 
     inci_dry_all = _dry_vol_pct(inci_outlet_flow, list(INCI_DRY_SPECIES))
     inci_vol = {k: inci_dry_all[k] for k in INCI_MAJOR_KEYS}
@@ -766,22 +811,22 @@ def run_fixed_temperature_simulation(
     inci_minor_vol = {k: inci_dry_all[k] for k in MINOR_SPECIES}
     inci_inert_vol = {k: inci_dry_all[k] for k in ("N2", "Ar")}
 
-    pox_outlet_flow = {**pox_major_flow, **pox_minor}
-    pox_dry_all = _dry_vol_pct(pox_outlet_flow, list(INCI_DRY_SPECIES))
+    pox_dry_all = _dry_vol_pct(pox_outlet_flow_ante, list(INCI_DRY_SPECIES))
     pox_vol = {k: pox_dry_all[k] for k in INCI_MAJOR_KEYS}
+    pox_wet_ante_all = _wet_vol_pct(pox_outlet_flow_ante, list(INCI_WET_SPECIES))
+    pox_wet_ante_vol = {k: pox_wet_ante_all[k] for k in list(INCI_MAJOR_KEYS) + ["H2O"]}
     pox_wet_all = _wet_vol_pct(pox_outlet_flow, list(INCI_WET_SPECIES))
     pox_wet_vol = {k: pox_wet_all[k] for k in list(INCI_MAJOR_KEYS) + ["H2O"]}
     pox_minor_vol = {k: pox_dry_all[k] for k in MINOR_SPECIES}
 
     inci_gas_mass_kg_h = species_flow_mass_kg_h(inci_outlet_flow)
-    inci_tar_kg_h = tar_allocation_mass_kg_h(pyro_split.tar_allocation)
     inci_top_kg_h = inci_gas_mass_kg_h
     inci_pgi_total_kg_h = inci_gas_mass_kg_h + inci_tar_kg_h
     inci_slag_kg_h = slag_to_u14_kg_h
     pox_gas_kg_h = species_flow_mass_kg_h(pox_outlet_flow)
-    pox_ash_kg_h = ash_kg_h * (1.0 - ash_to_slag) + float(RGPOX_CFG["ash_extra_biomass_frac"]) * feed.get("Biomass", 0.0)
+    pox_gas_ante_kg_h = species_flow_mass_kg_h(pox_outlet_flow_ante)
+    pox_ash_kg_h = pox_stage.pox_ash_kg_h
 
-    matched_case = _match_reference_case(feed, sample)
     feed_h2o_mol_h = biomass_moisture_h2o_mol_h + _kg_to_mol_h(feed.get("H2OIN", 0.0), 18.015)
     pyro_h2o_mol_h = max(pyro_split.volatile_species_mol_h.get("H2O", 0.0), 0.0)
     dbi_gas_mass = None
@@ -824,11 +869,14 @@ def run_fixed_temperature_simulation(
     )
 
     balance_in = dict(total_inlet_elem)
+    h2o_add_mol_h = quench_result.h2o_added_mol_h
+    balance_in["H"] = balance_in.get("H", 0.0) + 2.0 * h2o_add_mol_h
+    balance_in["O"] = balance_in.get("O", 0.0) + h2o_add_mol_h
     out_species = dict(pox_outlet_flow)
     for sp, val in slag_major.species_flow_mol_h.items():
         out_species[sp] = out_species.get(sp, 0.0) + val
     balance_out = elemental_totals_from_species(out_species, ["C", "H", "O", "N", "S", "Ar"])
-    balance_out["C"] += target_residual_c_mol + char_to_pox_mol * (1.0 - pox_c_conv)
+    balance_out["C"] += target_residual_c_mol + entrained.carbon_mol_h * (1.0 - pox_c_conv)
     solid_s_mol_h = max(biomass_elem["S"], 0.0) * max(0.0, 1.0 - min(max(s_release_frac, 0.0), 1.0))
     balance_out["S"] += solid_s_mol_h
     balance_rows = [
@@ -852,17 +900,45 @@ def run_fixed_temperature_simulation(
         UnitResult(
             "TARCOMP",
             "ok",
-            f"Tar outlet {inci_tar_kg_h:.2f} kg/h; internal crack path={'on' if tar_internal_flag else 'off'}",
+            f"Tar {inci_tar_kg_h:.2f} kg/h → RGPOX volatile pyrolysis (always on)",
             inci_tar_kg_h,
-            inci_tar_kg_h if tar_internal_flag else 0.0,
+            inci_tar_kg_h,
         ),
-        UnitResult("RGPOX(RGibbs)", "ok" if pox_major.success else "warn", pox_major.message, inci_top_kg_h + feed.get("O2POX", 0.0), pox_gas_kg_h + pox_ash_kg_h),
+        UnitResult(
+            "RGPOX(RGibbs)",
+            "ok" if pox_stage.gibbs.success else "warn",
+            (
+                f"{rgpox_stage_notes(pox_stage)}; "
+                f"TA(WGS,Meth)=({pox_dt_wgs_c:.1f},{pox_dt_meth_c:.1f})C, "
+                f"ETA(WGS,Meth)=({pox_eta_wgs:.2f},{pox_eta_meth:.2f}), "
+                f"TA_OX(CO,H2,CH4)=({pox_dt_ox_co_c:.1f},{pox_dt_ox_h2_c:.1f},{pox_dt_ox_ch4_c:.1f})C"
+            ),
+            inci_top_kg_h + inci_tar_kg_h + entrained.total_kg_h + feed.get("O2POX", 0.0),
+            pox_gas_ante_kg_h + pox_ash_kg_h,
+        ),
+        UnitResult(
+            "RGPOX(Quench)",
+            "ok",
+            (
+                f"mode={quench_result.mode}; T_out={quench_result.t_out_c:.1f}C; "
+                f"y_H2O={quench_result.y_h2o*100:.2f}%; "
+                f"H2O_add={quench_result.h2o_added_kg_h:.1f} kg/h"
+                + (
+                    f"; deltaQ={quench_result.delta_q_kj_h/1e6:.2f} MJ/h"
+                    if quench_result.delta_q_kj_h is not None
+                    else ""
+                )
+            ),
+            pox_gas_ante_kg_h,
+            pox_gas_kg_h,
+        ),
     ]
 
     rmsd_inci = None
     rmsd_pox = None
     rmsd_inci_wet = None
     rmsd_pox_wet = None
+    rmsd_pox_wet_ante = None
     rmsd_inci_dry_full = None
     rmsd_inci_wet_full = None
     if matched_case:
@@ -875,6 +951,9 @@ def run_fixed_temperature_simulation(
         if "pox_comp_wet" in expected:
             wet_keys = list(expected["pox_comp_wet"].keys())
             rmsd_pox_wet = _calc_rmsd_pct(pox_wet_vol, expected["pox_comp_wet"], wet_keys)
+        if "pox_comp_wet_ante" in expected:
+            wet_keys = list(expected["pox_comp_wet_ante"].keys())
+            rmsd_pox_wet_ante = _calc_rmsd_pct(pox_wet_ante_vol, expected["pox_comp_wet_ante"], wet_keys)
         if "inci_comp_dry_full" in expected:
             dry_full_keys = [k for k in expected["inci_comp_dry_full"] if k in inci_dry_full]
             rmsd_inci_dry_full = _calc_rmsd_pct(inci_dry_full, expected["inci_comp_dry_full"], dry_full_keys)
@@ -887,6 +966,23 @@ def run_fixed_temperature_simulation(
             rmsd_inci_wet_full = _calc_rmsd_pct(inci_wet_full, expected["inci_comp_wet_full"], wet_full_keys)
 
     rmsd_inci_primary = rmsd_inci_wet if rmsd_inci_wet is not None else rmsd_inci
+    rmsd_pox_primary = rmsd_pox_wet_ante if rmsd_pox_wet_ante is not None else rmsd_pox_wet if rmsd_pox_wet is not None else rmsd_pox
+
+    rgpox_inlet_audit = None
+    if matched_case:
+        from .rgpox_inlet_comparison import build_rgpox_inlet_audit
+
+        rgpox_inlet_audit = build_rgpox_inlet_audit(
+            case_id=matched_case,
+            gas_mass_kg_h=inci_top_kg_h,
+            gas_wet_vol_pct=inci_wet_full,
+            tar_mass_kg_h=inci_tar_kg_h,
+            entrained_solid_kg_h=entrained.total_kg_h,
+            o2pox_total_kg_h=feed.get("O2POX", 0.0),
+            chem=chem,
+            mass_tol_kg_h=float(NUMERICAL_CFG["rgpox_inlet_mass_tol_kg_h"]),
+            gas_wet_rmsd_limit=float(NUMERICAL_CFG["rgpox_inlet_gas_wet_rmsd_limit_case1"]),
+        )
 
     return SimulationResult(
         inci_top_kg_h=round(inci_top_kg_h, int(_NUM["mass_round_digits"])),
@@ -899,6 +995,9 @@ def run_fixed_temperature_simulation(
         pox_comp_dry_vol_pct=pox_vol,
         inci_comp_wet_vol_pct=inci_wet_vol,
         pox_comp_wet_vol_pct=pox_wet_vol,
+        pox_comp_wet_ante_vol_pct=pox_wet_ante_vol,
+        quench_t_out_c=round(quench_result.t_out_c, 2),
+        quench_h2o_added_kg_h=round(quench_result.h2o_added_kg_h, int(_NUM["mass_round_digits"])),
         inci_comp_dry_full_vol_pct=inci_dry_full,
         inci_comp_wet_full_vol_pct=inci_wet_full,
         inci_minor_vol_pct=inci_minor_vol,
@@ -908,12 +1007,15 @@ def run_fixed_temperature_simulation(
         rmsd_pox_pct=rmsd_pox,
         rmsd_inci_wet_pct=rmsd_inci_wet,
         rmsd_pox_wet_pct=rmsd_pox_wet,
+        rmsd_pox_wet_ante_pct=rmsd_pox_wet_ante,
         rmsd_inci_dry_full_pct=rmsd_inci_dry_full,
         rmsd_inci_wet_full_pct=rmsd_inci_wet_full,
         rmsd_inci_primary_pct=rmsd_inci_primary,
+        rmsd_pox_primary_pct=rmsd_pox_primary,
         unit_trace=unit_trace,
         thermo_trace=build_thermo_call_trace(),
         element_balance=balance_rows,
         inci_mass_audit=inci_mass_audit,
+        rgpox_inlet_audit=rgpox_inlet_audit,
         matched_case=matched_case,
     )

@@ -10,7 +10,8 @@
 | **Model_Output** | 仿真摘要、组成、DBI 对标、质量审计要点 |
 
 - 默认 xlsx：`Biomass_PFD_Simulator.xlsx`（`export/*.xlsx` 不入 Git）
-- 标注 PFD 资源：`export/assets/pfd_<case>.svg`（构建时生成）
+- **Excel 流程图**：`export/assets/流程示意图.png`（PFD 页嵌入，优先于 SVG 自动截图）
+- 可选标注 SVG：`export/assets/pfd_<case>.svg`（构建时生成，供开发参考）
 - **内部模型常数**：`export/vba/ModelInternals.bas` → 导入 Excel VBE，勿放在前端 Sheet
 
 生成命令：

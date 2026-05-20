@@ -49,7 +49,7 @@
         15.0
       ],
       "O2POX": [
-        961.6,
+        956.0,
         20.0,
         15.0
       ]
@@ -78,6 +78,15 @@
         "CH4": 0.085,
         "H2O": 39.033
       },
+      "pox_comp_wet_ante": {
+        "CO": 33.23,
+        "H2": 20.38,
+        "CO2": 15.87,
+        "CH4": 0.1,
+        "H2O": 27.76
+      },
+      "pox_benchmark_stream": "15PGR-2",
+      "pox_gibbs_benchmark_stream": "15PGR-1",
       "rmsd_inci_pct": 0.84,
       "rmsd_pox_pct": 0.06
     }

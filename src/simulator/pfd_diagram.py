@@ -17,6 +17,17 @@ from .parameters import PROJECT_ROOT
 
 TOPOLOGY_SVG = PROJECT_ROOT / "doc" / "core_topology.svg"
 ASSETS_DIR = PROJECT_ROOT / "export" / "assets"
+# Excel PFD 页嵌入的官方流程图（优先于 SVG 自动截图）
+PFD_WORKBOOK_IMAGE = ASSETS_DIR / "流程示意图.png"
+
+
+def resolve_pfd_workbook_image(*, annotated_png: Optional[Path] = None) -> Optional[Path]:
+    """返回应写入 Excel 的 PFD 位图路径。"""
+    if PFD_WORKBOOK_IMAGE.is_file():
+        return PFD_WORKBOOK_IMAGE
+    if annotated_png is not None and annotated_png.is_file():
+        return annotated_png
+    return None
 
 # (x, y) 标注框左上角，与 doc/core_topology.svg 坐标系一致
 STREAM_ANCHORS: Dict[str, Tuple[int, int]] = {

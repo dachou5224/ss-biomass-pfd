@@ -23,7 +23,13 @@ from .excel_theme import (
     format_workbook,
     write_stream_cards,
 )
-from .pfd_diagram import ASSETS_DIR, build_stream_callouts, export_annotated_pfd
+from .pfd_diagram import (
+    ASSETS_DIR,
+    PFD_WORKBOOK_IMAGE,
+    build_stream_callouts,
+    export_annotated_pfd,
+    resolve_pfd_workbook_image,
+)
 from .parameters import PROJECT_ROOT
 from .spreadsheet_ui import (
     VBA_EXPORT_DIR,
@@ -365,7 +371,7 @@ def _build_pfd(
         ws,
         layout,
         "PFD — 工艺流程与物流",
-        "左侧为流程图（若已生成 PNG）；右侧为流股卡片，与 Model Output 同步",
+        "左侧为流程示意图（export/assets/流程示意图.png）；右侧为流股卡片",
     )
     callouts = build_stream_callouts(feed_df, result)
     card_row, card_col = layout.pfd_cards_origin
@@ -382,7 +388,11 @@ def _embed_pfd_image(xlsx_bytes: bytes, png_path: Optional[Path], layout: SheetL
     ws = wb[SHEET_PFD]
     if png_path is not None and png_path.is_file():
         img = XLImage(str(png_path))
-        scale = min(900 / max(img.width, 1), 380 / max(img.height, 1), 1.0)
+        # 官方流程图较大，限制在 PFD 页左侧区域，右侧留给流股卡片
+        max_w, max_h = (680, 520)
+        if png_path.name == PFD_WORKBOOK_IMAGE.name:
+            max_w, max_h = (700, 530)
+        scale = min(max_w / max(img.width, 1), max_h / max(img.height, 1), 1.0)
         img.width = int(img.width * scale)
         img.height = int(img.height * scale)
         ws.add_image(img, layout.pfd_image_anchor)
@@ -413,7 +423,9 @@ def build_simulator_workbook(
     if write_vba:
         write_vba_internals_module(VBA_EXPORT_DIR)
 
-    _, png_path = export_annotated_pfd(feed_df, result, case_id=case_id)
+    # 标注 SVG 仍可选生成；Excel 嵌入优先使用 export/assets/流程示意图.png
+    _, annotated_png = export_annotated_pfd(feed_df, result, case_id=case_id)
+    png_path = resolve_pfd_workbook_image(annotated_png=annotated_png)
 
     layouts: Dict[str, SheetLayout] = {
         SHEET_GUIDE: SheetLayout(sheet=SHEET_GUIDE, title_row=1, hint_row=3, col_end=2),
@@ -422,8 +434,8 @@ def build_simulator_workbook(
             title_row=1,
             hint_row=3,
             col_end=10,
-            pfd_image_anchor="B14",
-            pfd_cards_origin=(4, 7),
+            pfd_image_anchor="B5",
+            pfd_cards_origin=(4, 12),
         ),
         SHEET_INPUT: SheetLayout(sheet=SHEET_INPUT, title_row=1, hint_row=3, col_end=4),
         SHEET_OUTPUT: SheetLayout(sheet=SHEET_OUTPUT, title_row=1, hint_row=3, col_end=4),
