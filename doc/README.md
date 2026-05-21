@@ -29,6 +29,7 @@ PDF 提取的参考物流 CSV 仍在 `data/reference/`（**不纳入 Git**）。
 ## Technical Documents
 
 - `algorithm-overview.md`: 当前 Python 原型的流程与算法说明（INCI/SLAG/RGPOX、Gibbs、tar、minor 组分）。
+- `excel_api_contract.md`: Excel JS 联调 API 契约（`/v1/compute/*` 纯计算，`/v1/demo/*` 适配层）。
 - `restricted-equilibrium-inci.md`: INCI 受限平衡（WGS/甲烷化 TA 与 η）的物理化学依据。
 - `inci-trace-species.md`: INCI 出口微量气体（H₂S/COS/NH₃/N₂/Ar）分配算法与 DBI stream 13PGI-1 全组分表说明。
 - `../data/reference/README.md`: **PDF 提取参考数据仅本地使用，禁止 push**；生成步骤与文件名列表。

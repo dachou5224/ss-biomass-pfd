@@ -1,0 +1,26 @@
+[Unit]
+Description=ss-biomass-pfd API service
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/ss-biomass-pfd
+Environment=PYTHONUNBUFFERED=1
+# Optional runtime secrets/config:
+#   SIM_API_KEY=...
+#   SIM_API_ALLOWED_ORIGINS=https://nice-ai.dev,https://app.nice-ai.dev
+EnvironmentFile=-/etc/default/ss-biomass-api
+ExecStart=/opt/ss-biomass-pfd/.venv/bin/python scripts/run_excel_webservice_demo.py --host 127.0.0.1 --port 8765
+Restart=always
+RestartSec=3
+
+# Basic hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
