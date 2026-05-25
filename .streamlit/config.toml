@@ -1,0 +1,14 @@
+# DCS / 流程模拟器暗色主题基线
+[theme]
+primaryColor = "#22D3EE"
+backgroundColor = "#0A0E17"
+secondaryBackgroundColor = "#121A2B"
+textColor = "#E2E8F0"
+font = "sans-serif"
+
+[server]
+headless = true
+
+[client]
+# 减少顶部工具条占用，配合 dcs_theme 隐藏固定顶栏
+toolbarMode = "viewer"
