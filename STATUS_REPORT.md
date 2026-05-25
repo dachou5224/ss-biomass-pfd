@@ -58,12 +58,20 @@
 
 ---
 
+## VPS 部署（2026-05-21）
+
+- 运维文档：`doc/VPS_DEPLOYMENT.md`；一键脚本：`deploy/deploy.sh`。
+- SSH 别名：`nice-ai-LZ` → `198.23.175.235`；安装路径 `/opt/ss-biomass-pfd`。
+- **已上线（内网/VPS 本机）**：`systemctl status ss-biomass-api` active；`http://127.0.0.1:8765/health` OK；Nginx HTTP 引导已加载。
+- **参考数据**：`data/reference/` 已 rsync 至 VPS（不入 Git，运行 API 必需）。
+- **HTTPS**：`https://simapi.nice-ai.dev/health` 已通（certbot 2026-08-19 到期，自动续期）。
+
 ## 交接重点（给下一位 agent）
 
-1. 优先推进“后端可部署化”，不要再扩展 VBA 主路径。  
-2. JS 客户端继续以 `export/js/WebServiceDemo.js` 为基线。  
-3. 生产地址应替换为 `https://<正式子域名>`，不要依赖 `trycloudflare`。  
-4. 进入公网前必须补齐：鉴权、限流、CORS 白名单、请求日志。  
+1. 优先推进 VPS 上线（`doc/VPS_DEPLOYMENT.md`），不要再扩展 VBA 主路径。  
+2. JS 客户端继续以 `export/js/WebServiceDemo.js` 为基线；`API_BASE` → `https://simapi.nice-ai.dev`。  
+3. 不要依赖 `trycloudflare`；API Key 见 VPS `/etc/default/ss-biomass-api`。  
+4. 错误码与日志：`doc/api_error_codes.md`。  
 
 ---
 

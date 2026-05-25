@@ -9,18 +9,19 @@
 
 ## P1（上线前必须完成）
 
-- [ ] **HTTPS 正式部署**：子域名（建议 `simapi.nice-ai.dev`）+ Nginx + certbot。
-- [ ] **鉴权**：API Key（Header）校验能力已实现，待 VPS 生产环境启用与密钥轮换流程补齐。
-- [ ] **限流/保护**：Nginx `limit_req`、请求体大小限制、超时。
-- [ ] **CORS 收敛**：白名单配置能力已实现，待生产域名最终确认后收敛并固化。
-- [ ] **可观测性**：请求结构化日志已输出，待补齐统一错误码规范文档。
+- [x] **HTTPS 正式部署**：`https://simapi.nice-ai.dev`（Let's Encrypt，经 Cloudflare 代理至 VPS）。
+- [x] **VPS 部署脚本与运维文档**：`deploy/deploy.sh`、`deploy/env.example`、`doc/VPS_DEPLOYMENT.md`；线上路径 `/opt/ss-biomass-pfd`。
+- [x] **鉴权**：VPS 已生成 `SIM_API_KEY`（`/etc/default/ss-biomass-api`）；轮换见 `doc/VPS_DEPLOYMENT.md` §7。
+- [x] **限流/保护**：Nginx `limit_req` / `client_max_body_size 2m` / proxy 超时已启用（HTTP 引导配置）。
+- [x] **CORS 收敛**：VPS 已设 `SIM_API_ALLOWED_ORIGINS=https://nice-ai.dev,https://www.nice-ai.dev`。
+- [x] **可观测性**：结构化访问日志 + `doc/api_error_codes.md`。
 
 ## P2（稳定性与体验）
 
 - [ ] **Excel JS 客户端增强**：增加错误提示面板/状态回写单元格（非仅 console）。
 - [ ] **命名区域健壮性**：缺失命名区域时提示“如何修复模板”。
 - [ ] **接口版本策略**：`/v1` 保持兼容，规划 `/v2` 变更窗口。
-- [ ] **联调手册**：WPS JS 与 MS Excel Script Lab 两套操作手册同步维护。
+- [x] **联调手册**：`doc/excel_workbook_api_上手教程.md`（零基础 Excel + Script Lab）；WPS 见同文档第十二节。
 
 ## 风险与注意事项
 
