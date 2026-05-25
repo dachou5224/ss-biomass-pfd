@@ -4,6 +4,7 @@ __pycache__/
 *.docx
 doc/*.pdf
 export/*.xlsx
+export/js/WebServiceDemo.config.local.js
 export/assets/*
 !export/assets/流程示意图.png
 

@@ -27,6 +27,20 @@ CLR_CARD_BORDER = "94A3B8"
 CLR_STREAM_HEAD = "B45309"
 CLR_HINT_BG = "EFF6FF"
 CLR_WARN_BG = "FEF2F2"
+CLR_CONSOLE_BG = "1E293B"
+CLR_CONSOLE_FG = "E2E8F0"
+CLR_CONSOLE_HEAD = "334155"
+CLR_CMD_BG = "F8FAFC"
+CLR_STATUS_BG = "ECFDF5"
+CLR_STATUS_BORDER = "059669"
+CLR_HEALTH_GREEN_BG = "DCFCE7"
+CLR_HEALTH_GREEN_FG = "166534"
+CLR_HEALTH_YELLOW_BG = "FEF9C3"
+CLR_HEALTH_YELLOW_FG = "854D0E"
+CLR_HEALTH_RED_BG = "FEE2E2"
+CLR_HEALTH_RED_FG = "991B1B"
+CLR_HEALTH_GRAY_BG = "F1F5F9"
+CLR_HEALTH_GRAY_FG = "64748B"
 
 FONT_TITLE = Font(name="Calibri", size=16, bold=True, color="FFFFFF")
 FONT_SECTION = Font(name="Calibri", size=11, bold=True, color=CLR_SECTION_FG)
@@ -36,6 +50,10 @@ FONT_KPI_LABEL = Font(name="Calibri", size=9, color="475569")
 FONT_KPI_VALUE = Font(name="Calibri", size=14, bold=True, color="0F766E")
 FONT_STREAM_ID = Font(name="Calibri", size=11, bold=True, color=CLR_STREAM_HEAD)
 FONT_HINT = Font(name="Calibri", size=9, italic=True, color="64748B")
+FONT_CONSOLE = Font(name="Consolas", size=9, color=CLR_CONSOLE_FG)
+FONT_CONSOLE_HEAD = Font(name="Consolas", size=9, bold=True, color=CLR_CONSOLE_FG)
+FONT_CMD = Font(name="Consolas", size=10, color="0F172A")
+FONT_STATUS_VAL = Font(name="Calibri", size=11, bold=True, color="0F766E")
 
 FILL_TITLE = PatternFill("solid", fgColor=CLR_TITLE_BG)
 FILL_SECTION = PatternFill("solid", fgColor=CLR_SECTION_BG)
@@ -48,6 +66,14 @@ FILL_CARD = PatternFill("solid", fgColor=CLR_CARD_BG)
 FILL_STREAM_HEAD = PatternFill("solid", fgColor="FEF3C7")
 FILL_HINT = PatternFill("solid", fgColor=CLR_HINT_BG)
 FILL_WARN = PatternFill("solid", fgColor=CLR_WARN_BG)
+FILL_CONSOLE = PatternFill("solid", fgColor=CLR_CONSOLE_BG)
+FILL_CONSOLE_HEAD = PatternFill("solid", fgColor=CLR_CONSOLE_HEAD)
+FILL_CMD = PatternFill("solid", fgColor=CLR_CMD_BG)
+FILL_STATUS = PatternFill("solid", fgColor=CLR_STATUS_BG)
+FILL_HEALTH_GREEN = PatternFill("solid", fgColor=CLR_HEALTH_GREEN_BG)
+FILL_HEALTH_YELLOW = PatternFill("solid", fgColor=CLR_HEALTH_YELLOW_BG)
+FILL_HEALTH_RED = PatternFill("solid", fgColor=CLR_HEALTH_RED_BG)
+FILL_HEALTH_GRAY = PatternFill("solid", fgColor=CLR_HEALTH_GRAY_BG)
 
 THIN = Side(style="thin", color="CBD5E1")
 MEDIUM = Side(style="medium", color=CLR_EDIT_BORDER)
@@ -61,6 +87,7 @@ ALIGN_RIGHT = Alignment(horizontal="right", vertical="center")
 
 TAB_COLORS = {
     "Guide": "64748B",
+    "WebService": "7C3AED",
     "PFD": "0D9488",
     "Model_Input": "2563EB",
     "Model_Output": "EA580C",
@@ -99,6 +126,12 @@ class SheetLayout:
     kpi_row_end: Optional[int] = None
     pfd_image_anchor: str = "A14"
     pfd_cards_origin: Tuple[int, int] = (4, 8)  # row, col for stream cards
+    api_key_row: Optional[int] = None  # WebService 页 API Key 所在行（B 列）
+    log_block: Optional["TableBlock"] = None  # WebService 页运行日志表
+    health_block: Optional["TableBlock"] = None  # WebService API 健康监控表
+    nav_row: Optional[int] = None  # 底部跨表导航行
+    footer_row: Optional[int] = None  # 页脚提示行
+    subtitle: Optional[str] = None  # 页眉副标题（format 时可选覆盖）
 
 
 def _merge_row(ws: Worksheet, row: int, col_start: int, col_end: int, value: str, font: Font, fill: PatternFill) -> None:
@@ -288,6 +321,113 @@ def apply_hyperlink_nav(ws: Worksheet, links: Iterable[Tuple[str, str, int]]) ->
         cell.font = Font(name="Calibri", size=11, underline="single", color="2563EB")
 
 
+def apply_workflow_block(ws: Worksheet, block: TableBlock) -> None:
+    """Guide 流程表：步骤列强调。"""
+    apply_table_block(ws, block, zebra=False)
+    for r in range(block.data_start, block.data_end + 1):
+        step = ws.cell(row=r, column=1)
+        mod = ws.cell(row=r, column=2)
+        if step.value:
+            step.font = Font(name="Calibri", size=11, bold=True, color="1E40AF")
+            step.alignment = ALIGN_CENTER
+        if mod.value:
+            mod.font = Font(name="Calibri", size=10, bold=True, color="0F172A")
+
+
+def apply_bottom_nav_row(ws: Worksheet, layout: SheetLayout) -> None:
+    if not layout.nav_row:
+        return
+    apply_hint_bar(ws, layout.nav_row, max(layout.col_end, 6), str(ws.cell(layout.nav_row, 1).value or ""))
+    ws.merge_cells(
+        start_row=layout.nav_row,
+        start_column=1,
+        end_row=layout.nav_row,
+        end_column=min(layout.col_end, 6),
+    )
+
+
+def apply_guide_sheet(ws: Worksheet, layout: SheetLayout) -> None:
+    apply_page_title(ws, layout, "生物质气化模拟器", "Spread Simulator · 工程首页")
+    apply_hint_bar(
+        ws,
+        layout.hint_row or 3,
+        layout.col_end,
+        "标签顺序：Model_Input → WebService → Model_Output → PFD（与下方流程一致）",
+    )
+    apply_column_widths(ws, {"A": 8, "B": 16, "C": 28, "D": 22, "E": 12})
+    for block in layout.blocks:
+        if "流程" in (block.title or ""):
+            apply_workflow_block(ws, block)
+        else:
+            apply_table_block(ws, block, zebra=False)
+    apply_view_options(ws, freeze="A5", zoom=110)
+    apply_sheet_tab_color(ws, "Guide")
+    ws.sheet_view.showGridLines = False
+
+
+def apply_input_sheet(ws: Worksheet, layout: SheetLayout) -> None:
+    apply_page_title(ws, layout, "模型输入", layout.subtitle or "步骤 1/4")
+    if layout.hint_row:
+        apply_hint_bar(
+            ws,
+            layout.hint_row,
+            layout.col_end,
+            "黄色 = 可编辑输入 · 白色 = Excel 公式（便于审阅）",
+        )
+    apply_column_widths(
+        ws,
+        {"A": 30, "B": 16, "C": 12, "D": 28, "E": 16, "F": 14, "G": 16, "H": 16},
+    )
+    for block in layout.blocks:
+        apply_table_block(ws, block)
+    apply_bottom_nav_row(ws, layout)
+    apply_view_options(ws, freeze="A6", zoom=100)
+    apply_sheet_tab_color(ws, "Model_Input")
+    ws.sheet_view.showGridLines = True
+
+
+def apply_output_sheet(
+    ws: Worksheet,
+    layout: SheetLayout,
+    default_widths: Dict[str, float],
+) -> None:
+    apply_page_title(ws, layout, "计算结果", layout.subtitle or "步骤 3/4 · 只读")
+    if layout.hint_row:
+        apply_hint_bar(ws, layout.hint_row, layout.col_end, "KPI 与组成表 · WebService 联调或完整仿真后更新")
+    apply_column_widths(ws, default_widths)
+    if layout.kpi_row_start and layout.kpi_row_end:
+        apply_kpi_strip(ws, layout.kpi_row_start, layout.kpi_row_end, layout.col_end)
+    for block in layout.blocks:
+        fmt = "0.00" if "vol%" in (block.title or "") or "RMSD" in (block.title or "") else "#,##0.0"
+        block.number_format = fmt if "vol%" in (block.title or "") else "#,##0.0"
+        apply_table_block(ws, block, zebra=True)
+    apply_bottom_nav_row(ws, layout)
+    apply_view_options(ws, freeze="A6", zoom=100)
+    apply_sheet_tab_color(ws, "Model_Output")
+    ws.sheet_view.showGridLines = False
+
+
+def apply_pfd_sheet(ws: Worksheet, layout: SheetLayout) -> None:
+    apply_page_title(ws, layout, "工艺流程图", layout.subtitle or "步骤 4/4")
+    if layout.hint_row:
+        apply_hint_bar(
+            ws,
+            layout.hint_row,
+            max(layout.col_end, 8),
+            "左：流程示意图 · 右：流股卡片（随输入/结果刷新）",
+        )
+    apply_column_widths(
+        ws,
+        {"A": 2, "B": 14, "C": 36, "D": 14, "E": 14, "F": 14, "G": 20, "H": 20, "I": 20, "J": 20},
+    )
+    apply_view_options(ws, freeze="B5", zoom=90)
+    apply_sheet_tab_color(ws, "PFD")
+    ws.sheet_view.showGridLines = False
+    ws.page_setup.orientation = "landscape"
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+
+
 def format_workbook(
     wb: Workbook,
     *,
@@ -298,77 +438,190 @@ def format_workbook(
     default_widths = {"A": 22, "B": 16, "C": 14, "D": 14, "E": 16, "F": 14, "G": 18, "H": 18}
 
     if "Guide" in wb.sheetnames and "Guide" in layouts:
-        ws = wb["Guide"]
-        lay = layouts["Guide"]
-        apply_page_title(ws, lay, "生物质气化 Spread Simulator", "Spreadsheet 前端 · 导航与说明")
-        apply_hint_bar(
-            ws,
-            lay.hint_row or 3,
-            lay.col_end,
-            "① 在 Model_Input 修改黄色单元格  →  ② 运行重算  →  ③ 查看 Model_Output 与 PFD",
-        )
-        apply_column_widths(ws, {"A": 18, "B": 52, "C": 12})
-        apply_view_options(ws, freeze="A5", zoom=110)
-        apply_sheet_tab_color(ws, "Guide")
-        for block in lay.blocks:
-            apply_table_block(ws, block, zebra=False)
+        apply_guide_sheet(wb["Guide"], layouts["Guide"])
 
     if "Model_Input" in wb.sheetnames and "Model_Input" in layouts:
-        ws = wb["Model_Input"]
-        lay = layouts["Model_Input"]
-        apply_page_title(
-            ws,
-            lay,
-            "Model Input — 模型输入",
-            f"工况设定与进料 · 仅黄色区域为用户可调参数",
-        )
-        if lay.hint_row:
-            apply_hint_bar(
-                ws,
-                lay.hint_row,
-                lay.col_end,
-                "提示：修改后请执行重算；固定常数见 VBE 模块 ModelInternals",
-            )
-        apply_column_widths(
-            ws,
-            {"A": 24, "B": 14, "C": 12, "D": 28, "E": 14, "F": 12, "G": 16, "H": 16},
-        )
-        for block in lay.blocks:
-            apply_table_block(ws, block)
-        apply_view_options(ws, freeze="A6", zoom=100)
-        apply_sheet_tab_color(ws, "Model_Input")
-        ws.sheet_view.showGridLines = True
+        apply_input_sheet(wb["Model_Input"], layouts["Model_Input"])
 
     if "Model_Output" in wb.sheetnames and "Model_Output" in layouts:
-        ws = wb["Model_Output"]
-        lay = layouts["Model_Output"]
-        apply_page_title(ws, lay, "Model Output — 模型输出", "仿真结果（只读）· 组成与 DBI 对标")
-        apply_column_widths(ws, default_widths)
-        if lay.kpi_row_start and lay.kpi_row_end:
-            apply_kpi_strip(ws, lay.kpi_row_start, lay.kpi_row_end, lay.col_end)
-        for block in lay.blocks:
-            fmt = "0.00" if "vol%" in block.title or "RMSD" in block.title else "#,##0.00"
-            block.number_format = fmt if "vol%" in block.title else "#,##0.0"
-            apply_table_block(ws, block, zebra=True)
-        apply_view_options(ws, freeze="A6", zoom=100)
-        apply_sheet_tab_color(ws, "Model_Output")
+        apply_output_sheet(wb["Model_Output"], layouts["Model_Output"], default_widths)
 
     if "PFD" in wb.sheetnames and "PFD" in layouts:
-        ws = wb["PFD"]
-        lay = layouts["PFD"]
-        if lay.hint_row:
-            apply_hint_bar(
-                ws,
-                lay.hint_row,
-                max(lay.col_end, 8),
-                "流程图：export/assets/流程示意图.png；右侧流股卡片随 Model Output 更新",
+        apply_pfd_sheet(wb["PFD"], layouts["PFD"])
+
+    if "WebService" in wb.sheetnames and "WebService" in layouts:
+        apply_webservice_sheet(wb["WebService"], layouts["WebService"])
+
+
+def apply_log_console(ws: Worksheet, block: TableBlock) -> None:
+    """WebService 运行日志：终端风格深色底。"""
+    apply_section_banner(ws, block)
+    for c in range(1, block.col_end + 1):
+        cell = ws.cell(row=block.header_row, column=c)
+        if cell.value is not None:
+            cell.font = FONT_CONSOLE_HEAD
+            cell.fill = FILL_CONSOLE_HEAD
+            cell.alignment = ALIGN_LEFT
+    for r in range(block.data_start, block.data_end + 1):
+        _set_row_heights(ws, r, 20, block.col_end)
+        for c in range(1, block.col_end + 1):
+            cell = ws.cell(row=r, column=c)
+            cell.font = FONT_CONSOLE
+            cell.fill = FILL_CONSOLE
+            cell.alignment = ALIGN_LEFT if c <= 2 else ALIGN_LEFT
+            cell.border = Border(
+                left=Side(style="thin", color=CLR_CONSOLE_HEAD),
+                right=Side(style="thin", color=CLR_CONSOLE_HEAD),
             )
-        apply_column_widths(
+
+
+def apply_command_block(ws: Worksheet, block: TableBlock) -> None:
+    """运行命令区：等宽字体浅灰底。"""
+    apply_section_banner(ws, block)
+    for c in range(1, block.col_end + 1):
+        cell = ws.cell(row=block.header_row, column=c)
+        if cell.value is not None:
+            cell.font = FONT_TABLE_HEAD
+            cell.fill = FILL_TABLE_HEAD
+    for r in range(block.data_start, block.data_end + 1):
+        _set_row_heights(ws, r, 24, block.col_end)
+        for c in range(1, block.col_end + 1):
+            cell = ws.cell(row=r, column=c)
+            if c == 1:
+                cell.font = Font(name="Calibri", size=10, bold=True, color="475569")
+                cell.fill = FILL_READONLY
+            else:
+                cell.font = FONT_CMD
+                cell.fill = FILL_CMD
+                cell.alignment = ALIGN_LEFT
+            cell.border = BORDER_TABLE
+
+
+def apply_health_monitor(ws: Worksheet, block: TableBlock) -> None:
+    """API 健康监控：灯列 + 状态列（JS 运行时刷绿/黄/红）。"""
+    apply_section_banner(ws, block)
+    lamp_col = 2
+    status_col = 3
+    for r in range(block.data_start, block.data_end + 1):
+        _set_row_heights(ws, r, 28, block.col_end)
+        for c in range(1, block.col_end + 1):
+            cell = ws.cell(row=r, column=c)
+            cell.border = Border(
+                left=Side(style="thin", color=CLR_STATUS_BORDER),
+                right=Side(style="thin", color=CLR_STATUS_BORDER),
+                top=Side(style="thin", color=CLR_STATUS_BORDER),
+                bottom=Side(style="thin", color=CLR_STATUS_BORDER),
+            )
+            if c == 1:
+                cell.font = Font(name="Calibri", size=10, bold=True, color="334155")
+                cell.fill = FILL_READONLY
+            elif c == lamp_col:
+                cell.font = Font(name="Calibri", size=16, bold=True, color=CLR_HEALTH_GRAY_FG)
+                cell.fill = FILL_HEALTH_GRAY
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+            elif c == status_col:
+                cell.font = Font(name="Calibri", size=11, bold=True, color=CLR_HEALTH_GRAY_FG)
+                cell.fill = FILL_HEALTH_GRAY
+            else:
+                cell.font = FONT_BODY
+                cell.fill = FILL_READONLY
+            cell.alignment = ALIGN_LEFT if c != lamp_col else Alignment(horizontal="center", vertical="center")
+
+
+def apply_status_strip(ws: Worksheet, block: TableBlock) -> None:
+    """顶部状态条：软件状态栏风格。"""
+    apply_section_banner(ws, block)
+    for r in range(block.data_start, block.data_end + 1):
+        _set_row_heights(ws, r, 26, block.col_end)
+        for c in range(1, block.col_end + 1):
+            cell = ws.cell(row=r, column=c)
+            if c in (1, 3, 5):
+                cell.font = FONT_KPI_LABEL
+                cell.fill = FILL_STATUS
+            else:
+                cell.font = FONT_STATUS_VAL
+                cell.fill = FILL_STATUS
+            cell.alignment = ALIGN_LEFT if c in (1, 3, 5) else ALIGN_LEFT
+            cell.border = Border(
+                left=Side(style="thin", color=CLR_STATUS_BORDER),
+                right=Side(style="thin", color=CLR_STATUS_BORDER),
+                top=Side(style="thin", color=CLR_STATUS_BORDER),
+                bottom=Side(style="thin", color=CLR_STATUS_BORDER),
+            )
+
+
+def apply_api_key_row(ws: Worksheet, block: TableBlock) -> None:
+    """API Key 行：加宽合并值单元格。"""
+    apply_table_block(ws, block)
+    for r in range(block.data_start, block.data_end + 1):
+        label = str(ws.cell(row=r, column=1).value or "")
+        if "API" in label or "密钥" in label:
+            val_col = 2
+            end_col = min(block.col_end, 6)
+            if end_col > val_col:
+                ws.merge_cells(
+                    start_row=r,
+                    start_column=val_col,
+                    end_row=r,
+                    end_column=end_col,
+                )
+            vc = ws.cell(row=r, column=val_col)
+            vc.font = Font(name="Consolas", size=10, bold=True, color="92400E")
+            vc.alignment = ALIGN_LEFT
+
+
+def apply_webservice_sheet(ws: Worksheet, layout: SheetLayout) -> None:
+    """WebService 计算客户端页：列宽、冻结、分区样式。"""
+    apply_page_title(
+        ws,
+        layout,
+        "在线计算服务",
+        "Spread Simulator · Web 客户端 — 填密钥 → 运行命令 → 查看日志与结果",
+    )
+    if layout.hint_row:
+        apply_hint_bar(
             ws,
-            {"A": 2, "B": 14, "C": 36, "D": 14, "E": 14, "F": 14, "G": 20, "H": 20, "I": 20, "J": 20},
+            layout.hint_row,
+            layout.col_end,
+            "本页即计算软件「联调台」：无需打开 JS 编辑器，运行日志在下方自动刷新",
         )
-        apply_view_options(ws, freeze=None, zoom=90)
-        apply_sheet_tab_color(ws, "PFD")
-        ws.page_setup.orientation = "landscape"
-        ws.page_setup.fitToWidth = 1
-        ws.page_setup.fitToHeight = 0
+    apply_column_widths(
+        ws,
+        {"A": 14, "B": 18, "C": 14, "D": 36, "E": 14, "F": 12, "G": 12, "H": 10},
+    )
+    for block in layout.blocks:
+        title = block.title or ""
+        if "运行日志" in title:
+            apply_log_console(ws, block)
+        elif "运行命令" in title:
+            apply_command_block(ws, block)
+        elif "健康监控" in title:
+            apply_health_monitor(ws, block)
+        elif "系统状态" in title:
+            apply_status_strip(ws, block)
+        elif "连接" in title or "授权" in title:
+            apply_api_key_row(ws, block)
+        else:
+            apply_table_block(ws, block, zebra=False)
+    if layout.nav_row:
+        cell = ws.cell(row=layout.nav_row, column=1)
+        cell.hyperlink = "#Model_Output!A1"
+        cell.font = Font(name="Calibri", size=12, bold=True, underline="single", color="2563EB")
+        cell.fill = FILL_HINT
+        _set_row_heights(ws, layout.nav_row, 28, layout.col_end)
+        ws.merge_cells(
+            start_row=layout.nav_row,
+            start_column=1,
+            end_row=layout.nav_row,
+            end_column=min(layout.col_end, 6),
+        )
+    if layout.footer_row:
+        apply_hint_bar(
+            ws,
+            layout.footer_row,
+            layout.col_end,
+            "安全：API Key 等同密码 · 勿分享工作簿 · 勿提交 Git · 勿截图外传",
+        )
+    apply_view_options(ws, freeze="A6", zoom=105)
+    apply_sheet_tab_color(ws, "WebService")
+    ws.sheet_view.showGridLines = False
