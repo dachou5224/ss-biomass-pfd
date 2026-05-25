@@ -18,7 +18,8 @@
 
 ## P2（稳定性与体验）
 
-- [ ] **Excel JS 客户端增强**：增加错误提示面板/状态回写单元格（非仅 console）。
+- [x] **Excel JS 客户端增强**：WebService 页运行日志 + API 健康监控（绿/黄/红）；见 `Output_WS_Log_Table`、`Output_API_Health_Table`。
+- [x] **无头 E2E**：`scripts/excel_ws_cli.py`、`run_excel_headless_e2e.sh`、`tests/test_excel_ws_headless.py`。
 - [ ] **命名区域健壮性**：缺失命名区域时提示“如何修复模板”。
 - [ ] **接口版本策略**：`/v1` 保持兼容，规划 `/v2` 变更窗口。
 - [x] **联调手册**：`doc/excel_workbook_api_上手教程.md`（零基础 Excel + Script Lab）；WPS 见同文档第十二节。
@@ -34,4 +35,5 @@
 - [x] `run_excel_webservice_demo.py` 本地服务可用
 - [x] `WebServiceDemo.js` 发起请求并回填 `Output_KPI_Table`
 - [x] HTTPS 隧道场景联调通过（用于 demo 验证）
-- [x] `pytest` 全量通过（76 passed）
+- [x] `pytest` 全量通过（82 passed）
+- [x] `scripts/sync_vps.sh` 本机 → VPS 同步与 deploy

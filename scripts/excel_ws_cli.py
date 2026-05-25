@@ -17,6 +17,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -25,8 +26,24 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BASE = "https://simapi.nice-ai.dev"
 DEFAULT_WORKBOOK = ROOT / "export" / "Biomass_PFD_Simulator.xlsx"
 LOG_TABLE_NAME = "Output_WS_Log_Table"
+HEALTH_TABLE_NAME = "Output_API_Health_Table"
 LOG_MAX_ROWS = 12
+HEALTH_MS_GREEN = 3000
+HEALTH_MS_YELLOW = 8000
 CURL_UA = "ss-biomass-pfd-excel-ws-cli/1.0"
+
+HEALTH_LABELS = {
+    "green": "正常",
+    "yellow": "偏慢",
+    "red": "异常",
+    "gray": "待检查",
+}
+HEALTH_STYLE = {
+    "green": ("DCFCE7", "166534"),
+    "yellow": ("FEF9C3", "854D0E"),
+    "red": ("FEE2E2", "991B1B"),
+    "gray": ("F1F5F9", "64748B"),
+}
 
 
 class HeadlessRunResult:
@@ -87,20 +104,97 @@ def _load_api_key(explicit: str = "", wb=None) -> str:
         return ""
 
 
-def _curl(method: str, url: str, *, api_key: str = "", body: dict | None = None) -> Tuple[int, str]:
+def _curl(method: str, url: str, *, api_key: str = "", body: dict | None = None) -> Tuple[int, str, float]:
+    t0 = time.perf_counter()
     cmd = ["curl", "-sS", "-A", CURL_UA, "-w", "\n%{http_code}", "-X", method, url]
     if api_key:
         cmd += ["-H", f"X-API-Key: {api_key}"]
     if body is not None:
         cmd += ["-H", "Content-Type: application/json", "-d", json.dumps(body)]
     proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    elapsed_ms = (time.perf_counter() - t0) * 1000.0
     if proc.returncode != 0:
         raise RuntimeError(f"curl 失败: {proc.stderr.strip() or proc.stdout}")
     out = proc.stdout
     if "\n" not in out:
         raise RuntimeError(f"curl 响应异常: {out[:300]}")
     text, code_s = out.rsplit("\n", 1)
-    return int(code_s), text
+    return int(code_s), text, elapsed_ms
+
+
+def _classify_health(http_status: int, latency_ms: float, body_ok: bool) -> str:
+    if not http_status:
+        return "red"
+    if http_status >= 500:
+        return "red"
+    if http_status in (401, 403):
+        return "yellow"
+    if not body_ok or http_status >= 400:
+        return "red"
+    if latency_ms > HEALTH_MS_YELLOW:
+        return "yellow"
+    if latency_ms > HEALTH_MS_GREEN:
+        return "yellow"
+    return "green"
+
+
+def _worst_health(*levels: str) -> str:
+    rank = {"red": 3, "yellow": 2, "green": 1, "gray": 0}
+    best = "gray"
+    for lv in levels:
+        if rank.get(lv, 0) > rank.get(best, 0):
+            best = lv
+    return best
+
+
+def _paint_health_row(ws, row: int, col_start: int, level: str) -> None:
+    from openpyxl.styles import Font, PatternFill
+
+    bg, fg = HEALTH_STYLE.get(level, HEALTH_STYLE["gray"])
+    fill = PatternFill("solid", fgColor=bg)
+    font = Font(name="Calibri", bold=True, color=fg)
+    for offset in (1, 2):  # 灯列、状态列
+        cell = ws.cell(row=row, column=col_start + offset)
+        cell.fill = fill
+        cell.font = font if offset == 2 else Font(name="Calibri", size=14, bold=True, color=fg)
+
+
+def _write_health_monitor(
+    wb,
+    *,
+    get_level: str,
+    get_status: str,
+    get_ms: float,
+    get_note: str,
+    post_level: Optional[str] = None,
+    post_status: str = "待命",
+    post_ms: Optional[float] = None,
+    post_note: str = "运行联调命令时更新",
+) -> None:
+    if HEALTH_TABLE_NAME not in wb.defined_names:
+        return
+    overall = _worst_health(get_level, post_level or "gray")
+    rows = [
+        ["API 总览", "●", HEALTH_LABELS[overall], f"{get_ms:.0f} ms", "headless 自动刷新"],
+        ["GET /health", "●", get_status, f"{get_ms:.0f} ms", get_note],
+        [
+            "POST 计算",
+            "●",
+            post_status if post_level else "待命",
+            f"{post_ms:.0f} ms" if post_ms is not None else "—",
+            post_note,
+        ],
+    ]
+    _write_named_table(wb, HEALTH_TABLE_NAME, rows)
+    dn = wb.defined_names.get(HEALTH_TABLE_NAME)
+    attr = dn.attr_text if hasattr(dn, "attr_text") else dn
+    if isinstance(attr, list):
+        attr = attr[0].attr_text
+    sheet, c1, r1, _, _ = _parse_defined_ref(attr)
+    ws = wb[sheet]
+    levels = [overall, get_level, post_level or "gray"]
+    for i, lv in enumerate(levels):
+        _paint_health_row(ws, r1 + i, c1, lv)
 
 
 def _parse_defined_ref(attr_text: str) -> Tuple[str, int, int, int, int]:
@@ -250,10 +344,23 @@ def run_headless_workbook_e2e(
     key = _load_api_key(api_key, wb=wb)
 
     try:
-        h_status, h_text = _curl("GET", f"{base}/health")
+        h_status, h_text, h_ms = _curl("GET", f"{base}/health")
         logs.append(("GET /health", str(h_status)))
+        h_ok = h_status == 200 and '"status"' in h_text and "ok" in h_text
+        h_level = _classify_health(h_status, h_ms, h_ok)
         if h_status != 200:
             logs.append(("ERROR", h_text[:200]))
+            if write_back:
+                _write_health_monitor(
+                    wb,
+                    get_level="red",
+                    get_status=f"{HEALTH_LABELS['red']} · HTTP {h_status}",
+                    get_ms=h_ms,
+                    get_note=h_text[:120],
+                )
+                if LOG_TABLE_NAME in wb.defined_names:
+                    _write_named_table(wb, LOG_TABLE_NAME, _log_rows_from_steps(logs))
+                wb.save(path)
             return HeadlessRunResult(
                 ok=False,
                 health_status=h_status,
@@ -269,6 +376,20 @@ def run_headless_workbook_e2e(
 
         if not key:
             logs.append(("ERROR", "缺少 API Key"))
+            if write_back:
+                _write_health_monitor(
+                    wb,
+                    get_level=h_level,
+                    get_status=f"{HEALTH_LABELS[h_level]} · HTTP {h_status}",
+                    get_ms=h_ms,
+                    get_note="GET /health OK",
+                    post_level="yellow",
+                    post_status=f"{HEALTH_LABELS['yellow']} · 缺少密钥",
+                    post_note="填写 Input_API_Key",
+                )
+                if LOG_TABLE_NAME in wb.defined_names:
+                    _write_named_table(wb, LOG_TABLE_NAME, _log_rows_from_steps(logs))
+                wb.save(path)
             return HeadlessRunResult(
                 ok=False,
                 health_status=h_status,
@@ -287,7 +408,7 @@ def run_headless_workbook_e2e(
         logs.append(("读取输入", f"case={payload['case_id']} feeds={len(payload['pfd_feeds'])}"))
         logs.append(("POST", f"{base}/v1/compute/simulate-lite"))
 
-        p_status, p_text = _curl(
+        p_status, p_text, p_ms = _curl(
             "POST",
             f"{base}/v1/compute/simulate-lite",
             api_key=key,
@@ -296,8 +417,21 @@ def run_headless_workbook_e2e(
         logs.append(("HTTP", str(p_status)))
         if p_status != 200:
             logs.append(("ERROR", p_text[:220]))
-            if write_back and LOG_TABLE_NAME in wb.defined_names:
-                _write_named_table(wb, LOG_TABLE_NAME, _log_rows_from_steps(logs))
+            p_level = _classify_health(p_status, p_ms, False)
+            if write_back:
+                _write_health_monitor(
+                    wb,
+                    get_level=h_level,
+                    get_status=f"{HEALTH_LABELS[h_level]} · HTTP {h_status}",
+                    get_ms=h_ms,
+                    get_note="GET /health OK",
+                    post_level=p_level,
+                    post_status=f"{HEALTH_LABELS[p_level]} · HTTP {p_status}",
+                    post_ms=p_ms,
+                    post_note=p_text[:120],
+                )
+                if LOG_TABLE_NAME in wb.defined_names:
+                    _write_named_table(wb, LOG_TABLE_NAME, _log_rows_from_steps(logs))
                 wb.save(path)
             return HeadlessRunResult(
                 ok=False,
@@ -317,8 +451,20 @@ def run_headless_workbook_e2e(
         kpi_rows = list(data.get("kpi_rows") or [])
         logs.append(("响应", f"status={api_status} kpi={len(kpi_rows)}"))
         ok = api_status == "ok" and len(kpi_rows) >= 5
+        p_level = _classify_health(p_status, p_ms, api_status == "ok")
 
         if write_back:
+            _write_health_monitor(
+                wb,
+                get_level=h_level,
+                get_status=f"{HEALTH_LABELS[h_level]} · HTTP {h_status}",
+                get_ms=h_ms,
+                get_note="GET /health OK",
+                post_level=p_level,
+                post_status=f"{HEALTH_LABELS[p_level]} · status={api_status}",
+                post_ms=p_ms,
+                post_note=f"KPI {len(kpi_rows)} 行",
+            )
             if "Output_KPI_Table" in wb.defined_names:
                 _write_named_table(
                     wb,
@@ -400,10 +546,10 @@ def main() -> int:
         return 0 if result.ok else 1
 
     base = args.base_url.rstrip("/")
-    status, text = _curl("GET", f"{base}/health")
-    print(f"GET /health -> {status}")
-    print(text[:240])
-    if status != 200:
+    h_status, h_text, h_ms = _curl("GET", f"{base}/health")
+    print(f"GET /health -> {h_status} ({h_ms:.0f} ms)")
+    print(h_text[:240])
+    if h_status != 200:
         return 1
     if args.health_only:
         return 0
@@ -412,6 +558,8 @@ def main() -> int:
 
     wb = None
     api_key = _load_api_key(args.api_key)
+    h_ok = '"status"' in h_text and "ok" in h_text
+    h_level = _classify_health(h_status, h_ms, h_ok)
     if args.workbook or (not args.fixed_payload and DEFAULT_WORKBOOK.is_file()):
         path = args.workbook or DEFAULT_WORKBOOK
         wb = load_workbook(path)
@@ -426,9 +574,9 @@ def main() -> int:
         print("错误: POST 需要 SIM_API_KEY", file=sys.stderr)
         return 1
 
-    status, text = _curl("POST", f"{base}/v1/compute/simulate-lite", api_key=api_key, body=payload)
-    print(f"POST /v1/compute/simulate-lite -> {status}")
-    data = json.loads(text)
+    p_status, p_text, p_ms = _curl("POST", f"{base}/v1/compute/simulate-lite", api_key=api_key, body=payload)
+    print(f"POST /v1/compute/simulate-lite -> {p_status} ({p_ms:.0f} ms)")
+    data = json.loads(p_text)
     print(f"status={data.get('status')} kpi_rows={len(data.get('kpi_rows', []))}")
     for row in data.get("kpi_rows") or []:
         print(f"  {row.get('metric')}\t{row.get('value')}\t{row.get('unit')}")
@@ -441,15 +589,27 @@ def main() -> int:
         _write_named_table(wb, "Output_KPI_Table", kpi_rows)
         if LOG_TABLE_NAME in wb.defined_names:
             steps = [
-                ("POST", str(status)),
+                ("POST", str(p_status)),
                 ("响应", str(data.get("status"))),
                 ("DONE" if data.get("status") == "ok" else "WARN", "headless 写回"),
             ]
             _write_named_table(wb, LOG_TABLE_NAME, _log_rows_from_steps(steps))
+        p_level = _classify_health(p_status, p_ms, data.get("status") == "ok")
+        _write_health_monitor(
+            wb,
+            get_level=h_level,
+            get_status=f"{HEALTH_LABELS[h_level]} · HTTP {h_status}",
+            get_ms=h_ms,
+            get_note="GET /health OK",
+            post_level=p_level,
+            post_status=f"{HEALTH_LABELS[p_level]} · status={data.get('status')}",
+            post_ms=p_ms,
+            post_note=f"KPI {len(data.get('kpi_rows') or [])} 行",
+        )
         wb.save(args.workbook or DEFAULT_WORKBOOK)
         print(f"已写回 -> {args.workbook or DEFAULT_WORKBOOK}")
 
-    return 0 if status == 200 and data.get("status") == "ok" else 1
+    return 0 if p_status == 200 and data.get("status") == "ok" else 1
 
 
 if __name__ == "__main__":

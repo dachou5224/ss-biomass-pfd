@@ -101,6 +101,9 @@ def test_excel_headless_e2e(tmp_path, sim_api_key, monkeypatch):
 
     log_rows = _read_named_table(wb, "Output_WS_Log_Table")
     log_text = " ".join(str(c) for row in log_rows for c in row if c)
+    health = _read_named_table(wb, "Output_API_Health_Table")
+    health_text = " ".join(str(c) for row in health for c in row if c)
+    assert "正常" in health_text
     assert "GET /health" in log_text or "START" in log_text
 
 

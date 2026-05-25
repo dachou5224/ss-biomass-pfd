@@ -9,6 +9,7 @@
 | `run_excel_webservice_demo.py` | 启动 Excel/WPS JS 联调用 HTTP 服务（路由在 `src/simulator/api/`） |
 | `excel_ws_cli.py` | 无 Excel 进程 WebService 联调 CLI（openpyxl + curl） |
 | `run_excel_headless_e2e.sh` | 一键 headless 健康检查 + E2E + pytest |
+| `sync_vps.sh` | 本机 rsync 到 VPS 并执行 `deploy/deploy.sh` |
 | `build_gibbs_spike_workbook.py` | 生成 Gibbs Spike 测试工作簿 |
 | `validate_gibbs_spike_vba.py` | 校验 Gibbs Spike VBA 与 Python 参考 |
 
