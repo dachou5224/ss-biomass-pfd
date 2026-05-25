@@ -8,7 +8,12 @@ import pandas as pd
 from .balance_audit import build_inci_mass_audit
 from .contracts import ElementBalance, SimulationResult, UnitResult
 from .data import INCI_C_CONVERSION, REFERENCE_CASES
-from .elemental import BIOMASS_SAMPLES, biomass_to_elemental_moles
+from .elemental import (
+    BIOMASS_SAMPLES,
+    biomass_sample_from_chem,
+    biomass_to_elemental_moles_for_chem,
+    biomass_to_elemental_moles_from_sample,
+)
 from .feed_streams import inci_o2_stream_species_kg_h
 from .gibbs import solve_gibbs_major
 from .parameters import (
@@ -411,10 +416,11 @@ def _apply_inci_gas_oxidation(
 def _build_inci_elemental_inlet(
     feed_map: Dict[str, float], sample_id: str, chem: Dict[str, str]
 ) -> Tuple[Dict[str, float], float]:
-    bio = biomass_to_elemental_moles(sample_id, feed_map.get("Biomass", 0.0))
+    sample = biomass_sample_from_chem(chem) if chem else BIOMASS_SAMPLES.get(sample_id, BIOMASS_SAMPLES[DEFAULT_BIOMASS_SAMPLE_FALLBACK])
+    bio = biomass_to_elemental_moles_from_sample(sample, feed_map.get("Biomass", 0.0))
     inlet = {k: bio.get(k, 0.0) for k in ("C", "H", "O", "N", "S", "Ar")}
     ash_kg_h = bio["Ash_kg_h"]
-    moisture_kg_h = feed_map.get("Biomass", 0.0) * BIOMASS_SAMPLES[sample_id].mad_pct / 100.0
+    moisture_kg_h = feed_map.get("Biomass", 0.0) * sample.mad_pct / 100.0
     moisture_h2o_mol_h = _kg_to_mol_h(moisture_kg_h, 18.015)
     inlet["H"] += 2.0 * moisture_h2o_mol_h
     inlet["O"] += 1.0 * moisture_h2o_mol_h
@@ -627,8 +633,9 @@ def run_fixed_temperature_simulation(
     o2_in_parts = _inci_o2_species_kg_h(feed, chem)
     co2_in_kg_h = feed.get("CO2IN", 0.0) + feed.get("CIN", 0.0)
 
-    biomass_elem = biomass_to_elemental_moles(sample, feed.get("Biomass", 0.0))
-    biomass_moisture_kg_h = feed.get("Biomass", 0.0) * BIOMASS_SAMPLES[sample].mad_pct / 100.0
+    biomass_elem = biomass_to_elemental_moles_for_chem(chem, feed.get("Biomass", 0.0))
+    bio_sample = biomass_sample_from_chem(chem)
+    biomass_moisture_kg_h = feed.get("Biomass", 0.0) * bio_sample.mad_pct / 100.0
     biomass_moisture_h2o_mol_h = _kg_to_mol_h(biomass_moisture_kg_h, 18.015)
     biomass_vm_elem = {
         "C": biomass_elem["C"] * vm_frac,
