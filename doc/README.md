@@ -24,6 +24,7 @@ PDF 提取的参考物流 CSV 仍在 `data/reference/`（**不纳入 Git**）。
 - 主 Sheet（流程顺序）：**Guide** → **Model_Input** → **WebService** → **Model_Output** → **PFD**。
 - 内部常数：`../export/vba/ModelInternals.bas`（导入 VBE，与 `config/model_parameters.json` 同源）。
 - Streamlit 侧边栏 **「下载 Excel」** 可导出当前编辑状态与仿真结果。
+- 模板校验：`validateWorkbookTemplate()`；规范见 `../src/simulator/workbook_template.py`。
 - 模块：`src/simulator/excel_export.py`、`spreadsheet_ui.py`、`pfd_diagram.py`。
 
 ## Technical Documents

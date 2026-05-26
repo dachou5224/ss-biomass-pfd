@@ -21,7 +21,6 @@
 - [x] **Excel JS 客户端增强**：WebService 页运行日志 + API 健康监控（绿/黄/红）；见 `Output_WS_Log_Table`、`Output_API_Health_Table`。
 - [x] **无头 E2E**：`scripts/excel_ws_cli.py`、`run_excel_headless_e2e.sh`、`tests/test_excel_ws_headless.py`。
 - [x] **命名区域健壮性**：`validateWorkbookTemplate()` / 联调前检查；缺失时写运行日志「TEMPLATE/修复」与健康灯；见 `workbook_template.py`。
-- [ ] **接口版本策略**：`/v1` 保持兼容，规划 `/v2` 变更窗口。
 - [x] **联调手册**：`doc/excel_workbook_api_上手教程.md`（零基础 Excel + Script Lab）；WPS 见同文档第十二节。
 
 ## 风险与注意事项
@@ -35,5 +34,12 @@
 - [x] `run_excel_webservice_demo.py` 本地服务可用
 - [x] `WebServiceDemo.js` 发起请求并回填 `Output_KPI_Table`
 - [x] HTTPS 隧道场景联调通过（用于 demo 验证）
-- [x] `pytest` 全量通过（82 passed）
+- [x] `pytest` 全量通过（87 passed）
 - [x] `scripts/sync_vps.sh` 本机 → VPS 同步与 deploy
+- [x] VPS 资源巡检脚本 `deploy/vps_health_check.sh`（2026-05-25 实测：磁盘 72%、API 正常、内存偏紧）
+
+## P3（运维稳态，持续）
+
+- [ ] **VPS 内存**：评估停用非必需 Docker 或升级套餐（当前 swap ~860 MiB 常驻）
+- [ ] **接口版本策略**：`/v1` 保持兼容，规划 `/v2` 变更窗口
+- [ ] **可选**：`/root/.cache/pip`、旧 `.vscode-server` 缓存清理（见 `doc/VPS_DEPLOYMENT.md` §11）
