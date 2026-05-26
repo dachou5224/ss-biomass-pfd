@@ -67,7 +67,8 @@
 | 服务 | `sshd` / `nginx` / `docker` / `ss-biomass-api` | 均 active |
 
 **资源风险**：1 GB 内存 VPS 同时跑 6 个 Docker + API，swap 常驻；曾出现 inotify `No space left on device`（磁盘满时）。  
-**建议**：定期 `deploy/vps_health_check.sh`；评估下线长期不用容器或升级内存；可选清理 `/root/.cache/pip`、旧 IDE server 缓存（见 `doc/VPS_DEPLOYMENT.md` §11）。
+**约束**：**当前运行中的 Docker 容器一律不动**（2026-05-25 确认）。  
+**建议**：定期 `deploy/vps_health_check.sh`（journal/apt/tmp/pip 缓存）；长期可考虑升配内存；可选清理 `/root/.cache/pip`、旧 IDE server 缓存（见 `doc/VPS_DEPLOYMENT.md` §11）。
 
 ---
 

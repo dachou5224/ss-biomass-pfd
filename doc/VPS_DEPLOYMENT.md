@@ -178,8 +178,8 @@ Cursor Agent 在本机可通过 `ssh nice-ai-LZ '...'` 执行上述命令；敏�
 ```bash
 cd /opt/ss-biomass-pfd
 bash deploy/vps_health_check.sh          # 只读巡检，异常 exit 1
-bash deploy/vps_health_check.sh --cleanup  # 巡检 + 磁盘清理
-bash deploy/vps_disk_cleanup.sh          # 仅清理（Docker/journal/apt/tmp）
+bash deploy/vps_health_check.sh --cleanup  # 巡检 + 磁盘清理（不含停 Docker）
+bash deploy/vps_disk_cleanup.sh          # journal/apt/tmp；Docker 仅 prune 已退出容器/构建缓存，不停运行中服务
 ```
 
 从 **本机**：
@@ -192,7 +192,7 @@ ssh nice-ai-LZ 'cd /opt/ss-biomass-pfd && bash deploy/vps_health_check.sh'
 
 ### 11.3 磁盘占用说明
 
-- **Docker**（~8.5 GB）：6 个运行中容器（chem_portal、searchlight 等），`docker system prune` 无法释放除非停服。
+- **Docker**（~8.5 GB）：6 个运行中容器（chem_portal、searchlight 等）。**运维约束：当前运行中的容器一律不停服、不 prune 释放镜像**（2026-05-25）。
 - **`/root`**（~3.5 GB）：含 `.vscode-server`、`.cursor-server`、`gasifier-1d-kinetic/.venv` 等开发残留。
 - **可选手动清理**（确认无业务影响后）：
   ```bash
@@ -206,7 +206,7 @@ ssh nice-ai-LZ 'cd /opt/ss-biomass-pfd && bash deploy/vps_health_check.sh'
 多因 **内存不足 + 磁盘满** 导致 sshd 无法 spawn shell。处理顺序：
 
 1. `df -h /` — 若 >85%，先 `vps_disk_cleanup.sh`
-2. `free -h` — 若 swap 满，重启非必需 Docker 或 `systemctl restart sshd`
+2. `free -h` — 若 swap 满，优先 journal/缓存清理；**不停 Docker**；必要时 `systemctl restart sshd` 或升配内存
 3. 通过 RackNerd **VNC 控制台**登录若 SSH 完全不可用
 
 ### 11.5 ss-biomass-api 与资源

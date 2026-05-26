@@ -28,15 +28,14 @@ if command -v docker >/dev/null 2>&1; then
   docker system df || true
   echo
 
-  log "停止已退出容器、清理 dangling 镜像/网络/构建缓存..."
+  log "停止已退出容器、清理 dangling 镜像/网络/构建缓存（不停运行中容器）..."
   docker container prune -f || true
   docker image prune -f || true
   docker network prune -f || true
   docker builder prune -f --filter 'until=24h' 2>/dev/null || docker builder prune -f 2>/dev/null || true
 
   if [[ "$AGGRESSIVE" == "1" ]]; then
-    log "aggressive: 清理未使用镜像与匿名卷（--volumes）..."
-    docker system prune -af --volumes || true
+    log "aggressive: 跳过（运行中 Docker 容器不可动）"
   else
     log "常规: docker system prune（保留未标记为 dangling 的镜像）..."
     docker system prune -f || true

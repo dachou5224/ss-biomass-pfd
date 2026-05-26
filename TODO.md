@@ -40,6 +40,7 @@
 
 ## P3（运维稳态，持续）
 
-- [ ] **VPS 内存**：评估停用非必需 Docker 或升级套餐（当前 swap ~860 MiB 常驻）
+- [x] **Docker 容器**：**全部保持运行，不做停服/prune**（用户确认 2026-05-25）
+- [ ] **VPS 内存**：在不动 Docker 前提下，靠 journal/log/缓存清理 + 监控；长期仍建议升配
 - [ ] **接口版本策略**：`/v1` 保持兼容，规划 `/v2` 变更窗口
 - [ ] **可选**：`/root/.cache/pip`、旧 `.vscode-server` 缓存清理（见 `doc/VPS_DEPLOYMENT.md` §11）
