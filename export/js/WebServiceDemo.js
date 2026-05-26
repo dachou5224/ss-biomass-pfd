@@ -25,6 +25,20 @@ const HEALTH_PALETTE = {
 
 const HEALTH_ROW = { OVERALL: 0, GET: 1, POST: 2 };
 
+const TEMPLATE_REBUILD_CMD =
+  "python3 scripts/build_simulator_workbook.py --case Case-1";
+
+/** 与 src/simulator/workbook_template.py 同步 */
+const TEMPLATE_NAMED_RANGE_SPECS = [
+  { name: "Input_CaseID", tier: "required", sheet: "Model_Input", hint: "工况标识" },
+  { name: "Input_Feed_Table", tier: "required", sheet: "Model_Input", hint: "进料流股表" },
+  { name: "Input_Chem_Table", tier: "required", sheet: "Model_Input", hint: "化学参数表" },
+  { name: "Output_KPI_Table", tier: "required", sheet: "Model_Output", hint: "KPI 写回表" },
+  { name: "Input_API_Key", tier: "recommended", sheet: "WebService", hint: "API 密钥黄格" },
+  { name: "Output_WS_Log_Table", tier: "recommended", sheet: "WebService", hint: "运行日志" },
+  { name: "Output_API_Health_Table", tier: "recommended", sheet: "WebService", hint: "健康监控" },
+];
+
 let _uiBridge = null;
 let _uiLogRows = [];
 
@@ -141,9 +155,105 @@ async function updateHealthMonitor(bridge, patch) {
   }
 }
 
+function formatTemplateFixMessage(result) {
+  const lines = [];
+  if (result.missingRequired.length) {
+    lines.push(
+      "缺少必需命名区域：" +
+        result.missingRequired.map((s) => s.name).join("、")
+    );
+    result.missingRequired.slice(0, 4).forEach((s) => {
+      lines.push("  · " + s.name + "（" + s.sheet + " · " + s.hint + "）");
+    });
+  }
+  if (result.missingRecommended.length) {
+    lines.push(
+      "缺少推荐命名区域：" +
+        result.missingRecommended.map((s) => s.name).join("、")
+    );
+  }
+  lines.push("修复：运行 " + TEMPLATE_REBUILD_CMD);
+  lines.push("重新打开 xlsx 并粘贴最新 export/js/WebServiceDemo.js");
+  return lines.join("\n");
+}
+
+async function checkWorkbookTemplate(bridge) {
+  const missingRequired = [];
+  const missingRecommended = [];
+  for (const spec of TEMPLATE_NAMED_RANGE_SPECS) {
+    const exists = await bridge.hasNamedRange(spec.name);
+    if (!exists) {
+      if (spec.tier === "required") missingRequired.push(spec);
+      else missingRecommended.push(spec);
+    }
+  }
+  return {
+    ok: missingRequired.length === 0,
+    missingRequired,
+    missingRecommended,
+  };
+}
+
+async function reportTemplateValidation(bridge, result, opts) {
+  const options = opts || {};
+  const strict = options.strict !== false;
+  const summary = result.ok
+    ? result.missingRecommended.length
+      ? "必需齐全；缺 " + result.missingRecommended.length + " 个推荐区域"
+      : "模板检查通过"
+    : "缺少 " + result.missingRequired.length + " 个必需命名区域";
+
+  const canLog = await bridge.hasNamedRange(LOG_TABLE_NAME);
+  if (options.beginLog && canLog) {
+    if (!_uiBridge) await beginUiLog(bridge, "模板检查…");
+    logStep("TEMPLATE", summary);
+    if (!result.ok || result.missingRecommended.length) {
+      logStep("修复", TEMPLATE_REBUILD_CMD);
+      if (result.missingRequired.length) {
+        logStep("缺少", result.missingRequired.map((s) => s.name).join(", "));
+      }
+    }
+    await flushUiLog();
+  }
+
+  if (await bridge.hasNamedRange(HEALTH_TABLE_NAME)) {
+    let level = "green";
+    if (!result.ok) level = "red";
+    else if (result.missingRecommended.length) level = "yellow";
+    await updateHealthMonitor(bridge, {
+      overall: {
+        level,
+        status: healthStatusText(level, result.ok ? "模板" : "模板异常"),
+        reading: "—",
+        note: summary.slice(0, LOG_DETAIL_MAX),
+      },
+    });
+  }
+
+  if (strict && !result.ok) {
+    throw new Error(formatTemplateFixMessage(result));
+  }
+  return result;
+}
+
+/** 检查命名区域并写入日志/健康灯（联调前建议先运行） */
+async function validateWorkbookTemplate(existingBridge) {
+  const bridge = existingBridge || (await resolveExcelBridge());
+  const result = await checkWorkbookTemplate(bridge);
+  await reportTemplateValidation(bridge, result, { beginLog: true, strict: false });
+  if (!result.ok) {
+    await bridge.alert("模板检查未通过：见运行日志 TEMPLATE/修复 行");
+  } else if (result.missingRecommended.length) {
+    await bridge.alert("模板可用但缺少推荐区域：见运行日志");
+  } else {
+    await bridge.alert("模板检查通过");
+  }
+  return result;
+}
+
 /** 仅刷新健康灯（GET /health，无需 API Key） */
-async function refreshApiHealthMonitor() {
-  const bridge = await resolveExcelBridge();
+async function refreshApiHealthMonitor(existingBridge) {
+  const bridge = existingBridge || (await resolveExcelBridge());
   const url = `${DEMO_BASE_URL}/health`;
   const t0 = Date.now();
   let httpStatus = 0;
@@ -184,7 +294,14 @@ async function runWebServiceLiteDemo() {
     await beginUiLog(bridge, "开始联调 calculate…");
     logStep("START", DEMO_BASE_URL);
 
-    const health = await refreshApiHealthMonitor().catch(() => null);
+    await reportTemplateValidation(bridge, await checkWorkbookTemplate(bridge), {
+      beginLog: true,
+      strict: true,
+    });
+    logStep("TEMPLATE", "必需命名区域齐全");
+    await flushUiLog();
+
+    const health = await refreshApiHealthMonitor(bridge).catch(() => null);
     if (health && health.level === "red") {
       logStep("WARN", "API 健康灯为红，仍尝试联调…");
       await flushUiLog();
@@ -275,6 +392,11 @@ async function runWebServiceHealthCheck() {
   try {
     bridge = await resolveExcelBridge();
     await beginUiLog(bridge, "健康检查…");
+    await reportTemplateValidation(
+      bridge,
+      await checkWorkbookTemplate(bridge),
+      { beginLog: false, strict: false }
+    );
     const url = `${DEMO_BASE_URL}/health`;
     logStep("GET", url);
     await flushUiLog();
@@ -446,6 +568,14 @@ function createWpsJsBridge() {
   }
 
   return {
+    async hasNamedRange(name) {
+      try {
+        getRange(name);
+        return true;
+      } catch (_) {
+        return false;
+      }
+    },
     async getNamedScalar(name) {
       const v = getRange(name).Value;
       if (Array.isArray(v)) {
@@ -483,6 +613,14 @@ function createWpsJsBridge() {
 
 function createOfficeJsBridge() {
   return {
+    async hasNamedRange(name) {
+      return Excel.run(async (ctx) => {
+        const named = ctx.workbook.names.getItemOrNullObject(name);
+        named.load("isNullObject");
+        await ctx.sync();
+        return !named.isNullObject;
+      });
+    },
     async getNamedScalar(name) {
       return Excel.run(async (ctx) => {
         const named = ctx.workbook.names.getItem(name);
@@ -554,5 +692,6 @@ if (typeof window !== "undefined") {
   window.runWebServiceLiteDemo = runWebServiceLiteDemo;
   window.runWebServiceHealthCheck = runWebServiceHealthCheck;
   window.refreshApiHealthMonitor = refreshApiHealthMonitor;
+  window.validateWorkbookTemplate = validateWorkbookTemplate;
   window.runWebServiceLiteDemoVerbose = runWebServiceLiteDemo;
 }

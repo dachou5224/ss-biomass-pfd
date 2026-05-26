@@ -23,6 +23,15 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from simulator.workbook_template import (  # noqa: E402
+    TEMPLATE_REBUILD_CMD,
+    format_template_fix_message,
+    format_template_log_summary,
+    validate_workbook,
+)
+
 DEFAULT_BASE = "https://simapi.nice-ai.dev"
 DEFAULT_WORKBOOK = ROOT / "export" / "Biomass_PFD_Simulator.xlsx"
 LOG_TABLE_NAME = "Output_WS_Log_Table"
@@ -324,6 +333,39 @@ def _log_rows_from_steps(steps: List[Tuple[str, str]]) -> List[List[str]]:
     return rows[:LOG_MAX_ROWS]
 
 
+class TemplateValidationError(RuntimeError):
+    pass
+
+
+def _apply_template_validation(wb, *, write_back: bool, path: Path) -> None:
+    result = validate_workbook(wb)
+    if result.ok and not result.missing_recommended:
+        return
+    summary = format_template_log_summary(result)
+    fix = format_template_fix_message(result)
+    if write_back:
+        if LOG_TABLE_NAME in wb.defined_names:
+            steps = [("TEMPLATE", summary), ("修复", TEMPLATE_REBUILD_CMD)]
+            if result.missing_required:
+                steps.append(("缺少", ", ".join(result.missing_required)))
+            _write_named_table(wb, LOG_TABLE_NAME, _log_rows_from_steps(steps))
+        if HEALTH_TABLE_NAME in wb.defined_names:
+            level = "red" if not result.ok else "yellow"
+            _write_health_monitor(
+                wb,
+                get_level="gray",
+                get_status="未测",
+                get_ms=0.0,
+                get_note="模板检查未通过" if not result.ok else "缺推荐区域",
+                post_level=level,
+                post_status=f"{HEALTH_LABELS[level]} · 模板",
+                post_note=summary[:120],
+            )
+        wb.save(path)
+    if not result.ok:
+        raise TemplateValidationError(fix)
+
+
 def run_headless_workbook_e2e(
     *,
     workbook: Path | None = None,
@@ -344,6 +386,13 @@ def run_headless_workbook_e2e(
     key = _load_api_key(api_key, wb=wb)
 
     try:
+        if write_back:
+            _apply_template_validation(wb, write_back=True, path=path)
+        else:
+            result = validate_workbook(wb)
+            if not result.ok:
+                raise TemplateValidationError(format_template_fix_message(result))
+
         h_status, h_text, h_ms = _curl("GET", f"{base}/health")
         logs.append(("GET /health", str(h_status)))
         h_ok = h_status == 200 and '"status"' in h_text and "ok" in h_text
@@ -487,6 +536,19 @@ def run_headless_workbook_e2e(
             workbook_path=path,
             case_id=payload["case_id"],
             feed_count=len(payload["pfd_feeds"]),
+        )
+    except TemplateValidationError as exc:
+        return HeadlessRunResult(
+            ok=False,
+            health_status=0,
+            post_status=0,
+            api_status="",
+            kpi_rows=[],
+            log_rows=[],
+            workbook_path=path,
+            case_id="",
+            feed_count=0,
+            error=str(exc),
         )
     except Exception as exc:
         logs.append(("ERROR", str(exc)[:220]))

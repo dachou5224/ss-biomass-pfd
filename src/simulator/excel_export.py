@@ -442,9 +442,10 @@ def _build_webservice(ws, layout: SheetLayout) -> None:
     row = layout.blocks[-1].data_end + 2
     cmds = pd.DataFrame(
         [
-            {"#": "①", "命令": "await refreshApiHealthMonitor();", "说明": "刷新健康灯（绿/黄/红，无需密钥）"},
-            {"#": "②", "命令": "await runWebServiceHealthCheck();", "说明": "健康检查 + 写运行日志"},
-            {"#": "③", "命令": "await runWebServiceLiteDemo();", "说明": "读取 Model_Input 并计算写回 KPI"},
+            {"#": "①", "命令": "await validateWorkbookTemplate();", "说明": "检查命名区域是否齐全（推荐先运行）"},
+            {"#": "②", "命令": "await refreshApiHealthMonitor();", "说明": "刷新健康灯（绿/黄/红，无需密钥）"},
+            {"#": "③", "命令": "await runWebServiceHealthCheck();", "说明": "健康检查 + 写运行日志"},
+            {"#": "④", "命令": "await runWebServiceLiteDemo();", "说明": "读取 Model_Input 并计算写回 KPI"},
         ]
     )
     layout.blocks.append(
@@ -483,6 +484,7 @@ def _build_webservice(ws, layout: SheetLayout) -> None:
     row += 2
     tips = pd.DataFrame(
         [
+            {"现象": "TEMPLATE · 缺少命名区域", "处理": "运行 build_simulator_workbook.py 重建 xlsx；见运行日志「修复」行"},
             {"现象": "ERROR · 缺少 API Key", "处理": "在「连接与授权」填写 API 访问密钥"},
             {"现象": "HTTP 401", "处理": "密钥无效，联系管理员更新后重试"},
             {"现象": "Load failed", "处理": "检查网络 / HTTPS；WPS 用户用 JS 宏运行同一脚本"},

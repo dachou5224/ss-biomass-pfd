@@ -78,6 +78,31 @@ def test_workbook_has_webservice_named_ranges(tmp_path):
         assert name in wb.defined_names, f"缺少命名区域 {name}"
 
 
+def test_headless_template_validation_fails_without_kpi_table(tmp_path):
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from excel_ws_cli import run_headless_workbook_e2e
+    from openpyxl import load_workbook
+
+    wb_path = _ensure_workbook(tmp_path)
+    wb = load_workbook(wb_path)
+    if "Output_KPI_Table" in wb.defined_names:
+        del wb.defined_names["Output_KPI_Table"]
+    wb.save(wb_path)
+
+    result = run_headless_workbook_e2e(workbook=wb_path, write_back=True)
+    assert not result.ok
+    assert "Output_KPI_Table" in (result.error or "")
+
+    wb2 = load_workbook(wb_path, read_only=True)
+    from excel_ws_cli import _read_named_table
+
+    log_text = " ".join(
+        str(c) for row in _read_named_table(wb2, "Output_WS_Log_Table") for c in row if c
+    )
+    assert "TEMPLATE" in log_text
+    assert "build_simulator_workbook" in log_text
+
+
 @requires_network
 def test_excel_headless_e2e(tmp_path, sim_api_key, monkeypatch):
     """完整 headless：health → simulate-lite → 写回 KPI/日志。"""
