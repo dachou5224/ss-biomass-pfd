@@ -27,7 +27,8 @@ Streamlit 侧边栏可下载同一工作簿。
 ## WPS JS / Office JS WebService 轻量联调 Demo
 
 - JS 脚本：`export/js/WebServiceDemo.js`（默认 `https://simapi.nice-ai.dev`）
-- **零基础分步教程（推荐）**：`doc/excel_workbook_api_上手教程.md`
+- **零基础用户操作手册（推荐）**：`doc/excel_用户操作手册.md`
+- **安装与排错详解**：`doc/excel_workbook_api_上手教程.md`
 - **进阶 / 无头 CLI**：`doc/excel_js_local_test.md`
 - 配置示例（勿提交真实密钥）：`export/js/WebServiceDemo.config.example.js`
 - 生产 API：`https://simapi.nice-ai.dev`（`GET /health`；`POST` 需 `X-API-Key`）

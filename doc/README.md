@@ -20,6 +20,7 @@ PDF 提取的参考物流 CSV 仍在 `data/reference/`（**不纳入 Git**）。
 
 ## Excel 工作簿（Spread Simulator 前端）
 
+- **零基础用户请先读**：[`excel_用户操作手册.md`](excel_用户操作手册.md)（日常操作、看结果、排错，无需懂 JS/API）。
 - `../export/Biomass_PFD_Simulator.xlsx`：由 `python3 scripts/build_simulator_workbook.py` 生成（`export/*.xlsx` 不纳入 Git）。
 - 主 Sheet（流程顺序）：**Guide** → **Model_Input** → **WebService** → **Model_Output** → **PFD**。
 - 内部常数：`../export/vba/ModelInternals.bas`（导入 VBE，与 `config/model_parameters.json` 同源）。
@@ -31,7 +32,8 @@ PDF 提取的参考物流 CSV 仍在 `data/reference/`（**不纳入 Git**）。
 
 - `algorithm-overview.md`: 当前 Python 原型的流程与算法说明（INCI/SLAG/RGPOX、Gibbs、tar、minor 组分）。
 - `excel_api_contract.md`: Excel JS 联调 API 契约（`/v1/compute/*` 纯计算，`/v1/demo/*` 适配层）。
-- **`excel_workbook_api_上手教程.md`**: **零基础**用 Excel 工作簿 + Script Lab 调用 `simapi.nice-ai.dev`（分步说明，推荐新人从这里读）。
+- **`excel_用户操作手册.md`**: **零基础日常操作**（改表 → WebService 运行 → Model_Output 看 KPI；推荐最终用户）。
+- **`excel_workbook_api_上手教程.md`**: 安装 Script Lab、API Key、分步联调（比用户手册更偏安装与排错细节）。
 - `excel_js_local_test.md`: 进阶/无头 CLI（`excel_ws_cli.py`）与 WPS 简要说明。
 - `VPS_DEPLOYMENT.md`: VPS 运维与 `simapi.nice-ai.dev` 部署（SSH、systemd、Nginx、certbot）。
 - `api_error_codes.md`: API HTTP 状态码与 `journalctl` 可观测性约定。
