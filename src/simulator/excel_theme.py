@@ -576,7 +576,7 @@ def apply_webservice_sheet(ws: Worksheet, layout: SheetLayout) -> None:
         ws,
         layout,
         "在线计算服务",
-        "Spread Simulator · Web 客户端 — 填密钥 → 运行命令 → 查看日志与结果",
+        "Spread Simulator · 联调台 — 填口令 → Script Lab / WPS 宏运行命令 → 查看日志",
     )
     if layout.hint_row:
         apply_hint_bar(

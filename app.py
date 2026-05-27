@@ -11,19 +11,28 @@ SRC_PATH = os.path.join(CURRENT_DIR, "src")
 if SRC_PATH not in sys.path:
     sys.path.insert(0, SRC_PATH)
 
-from simulator.backend import run_fixed_temperature_simulation
 from simulator.data import REFERENCE_CASES
 from simulator.dcs_theme import (
-    dcs_panel,
+    action_bar,
     faceplate_image,
     inject_dcs_theme,
+    input_zone,
+    output_zone,
     render_dcs_header,
+    render_input_legend,
+    render_kpi_strip,
+    render_performance_panel,
+    render_result_card,
+    render_user_input_rail_header,
     section_label,
+    tools_bar,
 )
 from simulator.excel_export import build_simulator_workbook
 from simulator.web_ui import (
     PFD_SECTION_LABELS,
     TUNING_SECTIONS,
+    UI_MODE_OPTIONS,
+    UiMode,
     apply_biomass_preset,
     apply_biomass_property_table,
     apply_case_template,
@@ -32,23 +41,32 @@ from simulator.web_ui import (
     apply_tuning_property_table,
     biomass_property_table,
     biomass_sample_options,
+    bottom_kpi_strip,
     build_chem_df_from_inputs,
     build_feed_df_from_inputs,
     build_specs_df_from_inputs,
     comparison_wet_df,
+    feed_balance_preview,
     feed_stream_table,
+    format_results_json,
+    format_results_markdown,
     init_session_state,
-    o2in_composition_table,
+    performance_summary_tiles,
+    render_o2in_number_inputs,
+    render_section_feed_number_inputs,
     pfd_feed_summary_df,
     pfd_image_path,
-    stream_table_column_config,
+    result_card_cells,
+    result_status,
+    run_simulation,
     tuning_property_table,
     tuning_table_column_config,
+    validate_inputs,
     wet_composition_df,
 )
 
 st.set_page_config(
-    page_title="生物质气化 · DCS",
+    page_title="生物质气化过程模拟器",
     page_icon="⚗",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -58,230 +76,365 @@ inject_dcs_theme()
 init_session_state()
 inputs = st.session_state.inputs
 res = st.session_state.result
+solve_errors: list[str] = list(st.session_state.get("solve_errors") or [])
+case_ids = list(REFERENCE_CASES.keys())
 
+card_status, card_label = result_status(inputs, res, solve_errors)
 run_state = "idle"
-if res is not None:
+if solve_errors:
+    run_state = "warn"
+elif res is not None:
     run_state = "ok" if res.matched_case else "warn"
 elif inputs.get("pfd_feeds"):
     run_state = "ready"
 
-render_dcs_header(case_id=inputs["case_id"], run_state=run_state)
-
-# —— 侧栏：工程操作站 ——
+# —— 侧栏：用户输入区（对标 Excel Model_Input 琥珀可编辑区）——
 with st.sidebar:
-    st.markdown("### 工程站")
-    case_ids = list(REFERENCE_CASES.keys())
+    render_user_input_rail_header()
+    render_input_legend()
 
-    def _on_case_change() -> None:
-        apply_case_template(st.session_state.sidebar_case)
+    with input_zone("① 工况与系统边界", tag="1", subtitle="选择模板或切换 CASE 后点「载入模板」"):
+        def _on_case_change() -> None:
+            apply_case_template(st.session_state.sidebar_case)
+            st.session_state.solve_errors = []
 
-    st.selectbox(
-        "CASE 模板",
-        options=case_ids,
-        key="sidebar_case",
-        on_change=_on_case_change,
-    )
-    if st.button("LOAD DEFAULTS", use_container_width=True):
-        apply_case_template(st.session_state.sidebar_case)
-        st.rerun()
-
-    st.divider()
-    inputs["system_p_bar"] = st.number_input(
-        "SYSTEM P (bar)",
-        value=float(inputs["system_p_bar"]),
-        min_value=1.0,
-        max_value=50.0,
-        step=0.5,
-    )
-
-    st.divider()
-    if st.button("▶ RUN SOLVE", type="primary", use_container_width=True):
-        with st.spinner("SOLVING…"):
-            st.session_state.result = run_fixed_temperature_simulation(
-                build_feed_df_from_inputs(inputs),
-                build_specs_df_from_inputs(inputs),
-                build_chem_df_from_inputs(inputs),
-            )
-        st.rerun()
-
-    try:
-        xlsx_bytes = build_simulator_workbook(
-            case_id=inputs["case_id"],
-            feed_df=build_feed_df_from_inputs(inputs),
-            specs_df=build_specs_df_from_inputs(inputs),
-            chem_df=build_chem_df_from_inputs(inputs),
-            result=st.session_state.result,
-            run_simulation=st.session_state.result is None,
+        inputs["case_id"] = st.selectbox(
+            "工况 CASE",
+            options=case_ids,
+            index=case_ids.index(inputs["case_id"]) if inputs["case_id"] in case_ids else 0,
+            key="sidebar_case",
+            on_change=_on_case_change,
         )
+        inputs["system_p_bar"] = st.number_input(
+            "系统压力 [bar]",
+            value=float(inputs["system_p_bar"]),
+            min_value=1.0,
+            max_value=50.0,
+            step=0.5,
+        )
+        if st.button("载入模板默认值", use_container_width=True):
+            apply_case_template(st.session_state.sidebar_case)
+            st.session_state.solve_errors = []
+            st.rerun()
+
+    with input_zone(
+        "② INCI 进料流股",
+        tag="2",
+        subtitle="每条流股三个数字框：流量 · 温度 · 压力",
+    ):
+        render_section_feed_number_inputs(inputs, "INCI")
+
+    with input_zone("③ 氧化剂 O2IN", tag="3", subtitle="三个 mol% 数字框，合计应接近 100"):
+        render_o2in_number_inputs(inputs)
+
+    prev = feed_balance_preview(inputs)
+    o2_ok = abs(prev["o2in_sum_mol_pct"] - 100.0) <= 0.5
+    st.markdown(
+        f'<div class="sim-feed-status">'
+        f'<div>INCI 进料合计：<b>{prev["inci_feed_kg_h"]:.0f}</b> kg/h</div>'
+        f'<div>O2IN 组分合计：<b>{prev["o2in_sum_mol_pct"]:.2f}</b>%'
+        f'{" ✓" if o2_ok else " · 建议调至 100%"}</div>'
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    with action_bar():
+        if st.button("重新计算", type="primary", use_container_width=True):
+            errs = validate_inputs(inputs)
+            st.session_state.solve_errors = errs
+            if errs:
+                st.session_state.result = None
+            else:
+                with st.spinner("求解中…"):
+                    st.session_state.result = run_simulation(inputs)
+            st.rerun()
+
+    with tools_bar():
+        st.caption("导出与备份")
         st.download_button(
-            "EXPORT XLSX",
-            data=xlsx_bytes,
-            file_name=f"Biomass_PFD_{inputs['case_id']}.xlsx",
+            "下载 Markdown",
+            data=format_results_markdown(inputs, res),
+            file_name=f"result_{inputs['case_id']}.md",
+            mime="text/markdown",
             use_container_width=True,
         )
-    except ImportError as exc:
-        st.caption(f"Excel: {exc}")
+        st.download_button(
+            "下载 JSON",
+            data=format_results_json(inputs, res),
+            file_name=f"result_{inputs['case_id']}.json",
+            mime="application/json",
+            use_container_width=True,
+        )
+        try:
+            xlsx_bytes = build_simulator_workbook(
+                case_id=inputs["case_id"],
+                feed_df=build_feed_df_from_inputs(inputs),
+                specs_df=build_specs_df_from_inputs(inputs),
+                chem_df=build_chem_df_from_inputs(inputs),
+                result=st.session_state.result,
+                run_simulation=st.session_state.result is None,
+            )
+            st.download_button(
+                "导出 Excel 工作簿",
+                data=xlsx_bytes,
+                file_name=f"Biomass_PFD_{inputs['case_id']}.xlsx",
+                use_container_width=True,
+            )
+        except ImportError as exc:
+            st.caption(f"Excel: {exc}")
 
-tab_feed, tab_props, tab_result = st.tabs(
-    ["FEEDS / 进料", "PROPERTIES / 物性与调参", "RESULTS / 结果"]
+    st.caption("主区「更多输入」可编辑 RGPOX / SLAG / 生物质 / 调参")
+
+render_dcs_header(
+    case_id=inputs["case_id"],
+    run_state=run_state,
+    subtitle="左侧输入 → 重新计算 → 右侧与主区 Tab 查看只读结果",
 )
 
-# ═══════════════════════════════════════════════════════════════
-# FEEDS — Aspen Stream Manager 风格
-# ═══════════════════════════════════════════════════════════════
-with tab_feed:
-    top_l, top_r = st.columns([1.05, 1])
-    with top_l:
-        faceplate_image(pfd_image_path(), "PFD FACEPLATE")
-    with top_r:
-        with dcs_panel("SOLIDS", "FEED CHARACTERIZATION — 生物质", hint="Proximate / Ultimate"):
-            bc1, bc2 = st.columns([1.2, 1])
-            with bc1:
-                preset = st.selectbox(
-                    "Library sample",
-                    options=biomass_sample_options(),
-                    index=biomass_sample_options().index(inputs.get("biomass", {}).get("preset", "11#"))
-                    if inputs.get("biomass", {}).get("preset") in biomass_sample_options()
-                    else 0,
-                    label_visibility="collapsed",
-                )
-            with bc2:
-                if st.button("LOAD LIBRARY → TABLE", use_container_width=True):
-                    apply_biomass_preset(inputs, preset)
-                    st.rerun()
-            bio_df = st.data_editor(
-                biomass_property_table(inputs),
-                column_config={
-                    "Tag": st.column_config.TextColumn("Tag", disabled=True, width="small"),
-                    "Description": st.column_config.TextColumn("Description", disabled=True),
-                    "Group": st.column_config.TextColumn("Group", disabled=True, width="small"),
-                    "Value": st.column_config.NumberColumn("Value", format="%.4f", step=0.01),
-                    "Unit": st.column_config.TextColumn("Unit", disabled=True, width="small"),
-                },
-                hide_index=True,
-                use_container_width=True,
-                key="bio_props_editor",
-            )
-            apply_biomass_property_table(inputs, bio_df)
-            inputs.setdefault("biomass", {})["preset"] = preset
+if solve_errors:
+    for msg in solve_errors:
+        st.error(msg)
+elif res is None:
+    prev = feed_balance_preview(inputs)
+    if abs(prev["o2in_sum_mol_pct"] - 100.0) > 0.05:
+        st.warning(
+            f"O2IN 组分合计 {prev['o2in_sum_mol_pct']:.2f}%（建议 100%）。"
+        )
 
-    for section, panel_tag in (
-        ("INCI", "U13"),
-        ("RGPOX", "U15"),
-        ("SLAG", "SLAG"),
-    ):
-        section_label(PFD_SECTION_LABELS[section])
-        with dcs_panel(
-            panel_tag,
-            f"STREAM TABLE — {section}",
-            hint="Editable: Mass Flow · T · P  |  Aspen-style inlet specification",
-        ):
-            edited = st.data_editor(
-                feed_stream_table(inputs, section),  # type: ignore[arg-type]
-                column_config=stream_table_column_config(),
-                hide_index=True,
-                use_container_width=True,
-                num_rows="fixed",
-                key=f"feed_editor_{section}",
-            )
-            apply_feed_stream_table(inputs, edited)
+col_main, col_side = st.columns([3.2, 1], gap="medium")
 
-    section_label("OXIDIZER COMPOSITION")
-    oc1, oc2 = st.columns(2)
-    with oc1:
-        with dcs_panel("13OG2-1", "INCI OXIDIZER — mol% (O2IN split)"):
-            o2_df = st.data_editor(
-                o2in_composition_table(inputs),
-                column_config={
-                    "Component": st.column_config.TextColumn("Component", disabled=True),
-                    "mol_pct": st.column_config.NumberColumn("mol%", format="%.3f", min_value=0.0, max_value=100.0),
-                },
-                hide_index=True,
-                use_container_width=True,
-                key="o2in_editor",
+with col_side:
+    st.markdown('<div class="sim-output-rail-title">计算结果区</div>', unsafe_allow_html=True)
+    render_performance_panel(performance_summary_tiles(inputs, res))
+    if res is not None:
+        st.caption("冷煤气效率为基于干基组成与流量的估算代理。")
+
+with col_main:
+    tab_pfd, tab_result, tab_more = st.tabs(
+        ["工艺流程图", "结果分析", "更多输入"]
+    )
+
+    with tab_pfd:
+        with output_zone("工艺流程图", subtitle="只读 · 随进料与求解更新"):
+            faceplate_image(pfd_image_path(), "工艺流程图")
+        render_kpi_strip(bottom_kpi_strip(inputs, res))
+
+    with tab_result:
+        with output_zone("关键指标", subtitle="只读 · 求解后更新"):
+            render_result_card(
+                status=card_status,
+                status_label=card_label,
+                cells=result_card_cells(inputs, res),
             )
-            apply_o2in_composition_table(inputs, o2_df)
-    with oc2:
-        with dcs_panel("15OG1", "RGPOX O2 — purity (vol%)"):
-            o2pox = inputs.setdefault("o2pox", {})
-            o2pox["purity_vol_pct"] = st.number_input(
-                "O2 purity vol%",
-                value=float(o2pox.get("purity_vol_pct", 95.0)),
-                min_value=90.0,
-                max_value=100.0,
-                step=0.5,
+        if res is not None:
+            with output_zone("气体组成", subtitle="只读图表"):
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.markdown("**INCI 出口湿基 vol%**")
+                    st.bar_chart(
+                        wet_composition_df("INCI", res.inci_comp_wet_vol_pct).set_index(
+                            "组分"
+                        )
+                    )
+                with c2:
+                    st.markdown("**RGPOX 出口湿基 vol%**")
+                    st.bar_chart(
+                        wet_composition_df("RGPOX", res.pox_comp_wet_vol_pct).set_index(
+                            "组分"
+                        )
+                    )
+
+        with st.expander("详细求解结果与对标", expanded=res is not None):
+            if res is None:
+                st.info("完成「重新计算」后显示湿基组成、DBI 对标与单元追踪。")
+                with output_zone("进料一览", subtitle="只读预览"):
+                    st.dataframe(
+                        pfd_feed_summary_df(inputs),
+                        hide_index=True,
+                        use_container_width=True,
+                    )
+            else:
+                if res.matched_case:
+                    st.success(f"工况匹配 · {res.matched_case}")
+                else:
+                    st.warning("自定义进料 — 未匹配 Case-1/2/3 签名")
+
+                out_l, out_r = st.columns(2)
+                with out_l:
+                    with output_zone("13PGI-1 · INCI 湿基 vol%"):
+                        st.dataframe(
+                            wet_composition_df("INCI", res.inci_comp_wet_vol_pct),
+                            hide_index=True,
+                            use_container_width=True,
+                        )
+                        if res.rmsd_inci_primary_pct is not None:
+                            st.caption(
+                                f"RMSD vs DBI: **{res.rmsd_inci_primary_pct:.2f}%**"
+                            )
+                with out_r:
+                    with output_zone("15PGR-2 · RGPOX 急冷湿基 vol%"):
+                        if res.quench_t_out_c is not None:
+                            st.caption(
+                                f"T_out {res.quench_t_out_c:.0f}°C · "
+                                f"H2O 注入 {res.quench_h2o_added_kg_h or 0:.0f} kg/h"
+                            )
+                        st.dataframe(
+                            wet_composition_df("RGPOX", res.pox_comp_wet_vol_pct),
+                            hide_index=True,
+                            use_container_width=True,
+                        )
+                        if res.rmsd_pox_primary_pct is not None:
+                            st.caption(
+                                f"RMSD vs DBI: **{res.rmsd_pox_primary_pct:.2f}%**"
+                            )
+
+                if res.matched_case:
+                    expected = REFERENCE_CASES[res.matched_case]["expected"]
+                    section_label("DBI 对标")
+                    c1, c2 = st.columns(2)
+                    inci_wet = dict(
+                        expected.get("inci_comp_wet", expected["inci_comp"])
+                    )
+                    inci_wet.setdefault("H2O", float("nan"))
+                    pox_wet = dict(expected.get("pox_comp_wet", expected["pox_comp"]))
+                    pox_wet.setdefault("H2O", float("nan"))
+                    with c1:
+                        with output_zone("INCI 对标偏差"):
+                            st.dataframe(
+                                comparison_wet_df(inci_wet, res.inci_comp_wet_vol_pct),
+                                hide_index=True,
+                                use_container_width=True,
+                            )
+                    with c2:
+                        with output_zone("RGPOX 对标偏差"):
+                            st.dataframe(
+                                comparison_wet_df(pox_wet, res.pox_comp_wet_vol_pct),
+                                hide_index=True,
+                                use_container_width=True,
+                            )
+
+                with output_zone("进料台账", subtitle="只读汇总"):
+                    st.dataframe(
+                        pfd_feed_summary_df(inputs),
+                        hide_index=True,
+                        use_container_width=True,
+                    )
+                with output_zone("单元追踪 / AUDIT"):
+                    st.dataframe(
+                        pd.DataFrame([x.__dict__ for x in res.unit_trace]),
+                        hide_index=True,
+                        use_container_width=True,
+                    )
+
+    with tab_more:
+        st.markdown(
+            "扩展输入与 Excel **Model_Input** 其余黄底单元格对应；"
+            "侧栏已覆盖 CASE、系统压力、INCI 进料与 O2IN。"
+        )
+        mode_labels = [label for _, label in UI_MODE_OPTIONS]
+        mode_keys: list[UiMode] = [key for key, _ in UI_MODE_OPTIONS]
+        mode_index = (
+            mode_keys.index(st.session_state.ui_mode)
+            if st.session_state.ui_mode in mode_keys
+            else 0
+        )
+        with input_zone("输入类别", tag="+"):
+            picked = st.radio(
+                "选择要编辑的内容",
+                options=mode_labels,
+                index=mode_index,
+                horizontal=True,
                 label_visibility="collapsed",
             )
-            st.caption("N₂/Ar 杂质由纯度推算（POSTO2 / O2POX）")
+            st.session_state.ui_mode = mode_keys[mode_labels.index(picked)]
+        ui_mode: UiMode = st.session_state.ui_mode
 
-# ═══════════════════════════════════════════════════════════════
-# PROPERTIES
-# ═══════════════════════════════════════════════════════════════
-with tab_props:
-    with dcs_panel("REACTION", "RESTRICTED EQUILIBRIUM & PYROLYSIS", hint="TA / Tar / VM"):
-        chemistry = inputs.setdefault("chemistry", {})
-        for section_name in TUNING_SECTIONS:
-            st.markdown(f"**{section_name}**")
-            edited_tune = st.data_editor(
-                tuning_property_table(chemistry, section_name),
-                column_config=tuning_table_column_config(),
-                hide_index=True,
-                use_container_width=True,
-                key=f"tune_{section_name}",
+        if ui_mode == "feeds":
+            with output_zone(
+                "INCI 进料台账（只读）",
+                subtitle="在左侧侧栏改流量/温压；此处显示 PFD 位号与相态",
+            ):
+                st.dataframe(
+                    feed_stream_table(inputs, "INCI"),
+                    hide_index=True,
+                    use_container_width=True,
+                )
+
+            with input_zone("生物质工业/元素分析", tag="A", subtitle="Value 列可编辑"):
+                bc1, bc2 = st.columns([1.2, 1])
+                with bc1:
+                    preset = st.selectbox(
+                        "样品库",
+                        options=biomass_sample_options(),
+                        index=biomass_sample_options().index(
+                            inputs.get("biomass", {}).get("preset", "11#")
+                        )
+                        if inputs.get("biomass", {}).get("preset")
+                        in biomass_sample_options()
+                        else 0,
+                    )
+                with bc2:
+                    if st.button("载入样品", use_container_width=True):
+                        apply_biomass_preset(inputs, preset)
+                        st.rerun()
+                bio_df = st.data_editor(
+                    biomass_property_table(inputs),
+                    column_config={
+                        "Tag": st.column_config.TextColumn("Tag", disabled=True),
+                        "Group": st.column_config.TextColumn("Group", disabled=True),
+                        "Description": st.column_config.TextColumn("Description", disabled=True),
+                        "Value": st.column_config.NumberColumn(
+                            "Value ✎", format="%.4f", help="可编辑"
+                        ),
+                        "Unit": st.column_config.TextColumn("Unit", disabled=True),
+                    },
+                    hide_index=True,
+                    use_container_width=True,
+                    key="bio_props_editor",
+                )
+                apply_biomass_property_table(inputs, bio_df)
+                inputs.setdefault("biomass", {})["preset"] = preset
+
+            for section, panel_tag, step_tag in (
+                ("RGPOX", "U15", "B"),
+                ("SLAG", "SLAG", "C"),
+            ):
+                with input_zone(
+                    PFD_SECTION_LABELS[section],
+                    tag=step_tag,
+                    subtitle="每条流股：流量 · 温度 · 压力 数字框",
+                ):
+                    render_section_feed_number_inputs(inputs, section)  # type: ignore[arg-type]
+
+            with input_zone("RGPOX 氧化剂", tag="D"):
+                o2pox = inputs.setdefault("o2pox", {})
+                o2pox["purity_vol_pct"] = st.number_input(
+                    "O2 纯度 [90–100 vol%] ✎",
+                    value=float(o2pox.get("purity_vol_pct", 95.0)),
+                    min_value=90.0,
+                    max_value=100.0,
+                    step=0.5,
+                )
+
+        else:
+            with input_zone(
+                "受限平衡与热解 / Tar",
+                tag="T",
+                subtitle="Value 列可编辑 · 对标 Excel Chemistry 黄底",
+            ):
+                chemistry = inputs.setdefault("chemistry", {})
+                for section_name in TUNING_SECTIONS:
+                    st.markdown(f"**{section_name}**")
+                    edited_tune = st.data_editor(
+                        tuning_property_table(chemistry, section_name),
+                        column_config=tuning_table_column_config(),
+                        hide_index=True,
+                        use_container_width=True,
+                        key=f"tune_{section_name}",
+                    )
+                    apply_tuning_property_table(chemistry, edited_tune)
+
+        with output_zone("当前进料一览", subtitle="只读 · 汇总侧栏与扩展输入"):
+            st.dataframe(
+                pfd_feed_summary_df(inputs), hide_index=True, use_container_width=True
             )
-            apply_tuning_property_table(chemistry, edited_tune)
-            st.caption("—")
-
-# ═══════════════════════════════════════════════════════════════
-# RESULTS
-# ═══════════════════════════════════════════════════════════════
-with tab_result:
-    res = st.session_state.result
-    if res is None:
-        st.info("在侧栏点击 **▶ RUN SOLVE** 或完成进料后运行求解。")
-        st.dataframe(pfd_feed_summary_df(inputs), hide_index=True, use_container_width=True)
-        st.stop()
-
-    m1, m2, m3, m4, m5 = st.columns(5)
-    m1.metric("13PGI-1 GAS", f"{res.inci_top_kg_h:.0f} kg/h")
-    m2.metric("13LBS SLAG", f"{res.inci_slag_kg_h:.0f} kg/h")
-    m3.metric("TAR", f"{res.inci_tar_kg_h:.1f} kg/h")
-    m4.metric("15PGR GAS", f"{res.pox_gas_kg_h:.0f} kg/h")
-    m5.metric("POX ASH", f"{res.pox_ash_kg_h:.1f} kg/h")
-
-    if res.matched_case:
-        st.success(f"CASE MATCH · {res.matched_case}")
-    else:
-        st.warning("CUSTOM FEED — no Case-1/2/3 signature match")
-
-    out_l, out_r = st.columns(2)
-    with out_l:
-        with dcs_panel("13PGI-1", "INCI OUTLET — wet vol%"):
-            st.dataframe(wet_composition_df("INCI", res.inci_comp_wet_vol_pct), hide_index=True, use_container_width=True)
-            if res.rmsd_inci_primary_pct is not None:
-                st.caption(f"RMSD vs DBI: **{res.rmsd_inci_primary_pct:.2f}%**")
-    with out_r:
-        with dcs_panel("15PGR-2", "RGPOX OUTLET — quenched wet vol%"):
-            if res.quench_t_out_c is not None:
-                st.caption(f"T_out {res.quench_t_out_c:.0f}°C · H2O inj {res.quench_h2o_added_kg_h or 0:.0f} kg/h")
-            st.dataframe(wet_composition_df("RGPOX", res.pox_comp_wet_vol_pct), hide_index=True, use_container_width=True)
-            if res.rmsd_pox_primary_pct is not None:
-                st.caption(f"RMSD vs DBI: **{res.rmsd_pox_primary_pct:.2f}%**")
-
-    if res.matched_case:
-        expected = REFERENCE_CASES[res.matched_case]["expected"]
-        with st.expander("DBI BENCHMARK TABLES"):
-            c1, c2 = st.columns(2)
-            inci_wet = dict(expected.get("inci_comp_wet", expected["inci_comp"]))
-            inci_wet.setdefault("H2O", float("nan"))
-            pox_wet = dict(expected.get("pox_comp_wet", expected["pox_comp"]))
-            pox_wet.setdefault("H2O", float("nan"))
-            with c1:
-                st.dataframe(comparison_wet_df(inci_wet, res.inci_comp_wet_vol_pct), hide_index=True, use_container_width=True)
-            with c2:
-                st.dataframe(comparison_wet_df(pox_wet, res.pox_comp_wet_vol_pct), hide_index=True, use_container_width=True)
-
-    with st.expander("STREAM LEDGER"):
-        st.dataframe(pfd_feed_summary_df(inputs), hide_index=True, use_container_width=True)
-    with st.expander("UNIT TRACE / AUDIT"):
-        st.dataframe(pd.DataFrame([x.__dict__ for x in res.unit_trace]), hide_index=True, use_container_width=True)

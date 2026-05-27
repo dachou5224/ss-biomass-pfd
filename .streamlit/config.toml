@@ -1,14 +1,15 @@
-# DCS / 流程模拟器暗色主题基线
+# 浅色工程仪表盘主题（与 dcs_theme.py / 参考 UI 一致）
 [theme]
-primaryColor = "#22D3EE"
-backgroundColor = "#0A0E17"
-secondaryBackgroundColor = "#121A2B"
-textColor = "#E2E8F0"
-font = "sans-serif"
+base = "light"
+primaryColor = "#005A8C"
+backgroundColor = "#F4F6F9"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#1E293B"
+font = "sans serif"
 
 [server]
+fileWatcherType = "none"
 headless = true
 
 [client]
-# 减少顶部工具条占用，配合 dcs_theme 隐藏固定顶栏
 toolbarMode = "viewer"

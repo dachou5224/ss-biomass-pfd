@@ -20,8 +20,10 @@ PDF 提取的参考物流 CSV 仍在 `data/reference/`（**不纳入 Git**）。
 
 ## Excel 工作簿（Spread Simulator 前端）
 
-- **零基础用户请先读**：[`excel_用户操作手册.md`](excel_用户操作手册.md)（日常操作、看结果、排错，无需懂 JS/API）。
-- `../export/Biomass_PFD_Simulator.xlsx`：由 `python3 scripts/build_simulator_workbook.py` 生成（`export/*.xlsx` 不纳入 Git）。
+- **用户手册（Microsoft Excel，含 Mac）**：[`excel_用户操作手册.md`](excel_用户操作手册.md)（`xlsx` + `WebServiceDemo.js`）。
+- **Mac 本机开发联调**：[`excel_mac_开发联调.md`](excel_mac_开发联调.md)。
+- **WPS 用户**：[`excel_wps_用户操作手册.md`](excel_wps_用户操作手册.md)（`Biomass_PFD_Simulator_WPS.xlsm`）。
+- `../export/Biomass_PFD_Simulator.xlsx`：Excel 主线；`../export/Biomass_PFD_Simulator_WPS.xlsm`：WPS 后续验收。
 - 主 Sheet（流程顺序）：**Guide** → **Model_Input** → **WebService** → **Model_Output** → **PFD**。
 - 内部常数：`../export/vba/ModelInternals.bas`（导入 VBE，与 `config/model_parameters.json` 同源）。
 - Streamlit 侧边栏 **「下载 Excel」** 可导出当前编辑状态与仿真结果。
@@ -32,7 +34,7 @@ PDF 提取的参考物流 CSV 仍在 `data/reference/`（**不纳入 Git**）。
 
 - `algorithm-overview.md`: 当前 Python 原型的流程与算法说明（INCI/SLAG/RGPOX、Gibbs、tar、minor 组分）。
 - `excel_api_contract.md`: Excel JS 联调 API 契约（`/v1/compute/*` 纯计算，`/v1/demo/*` 适配层）。
-- **`excel_用户操作手册.md`**: **零基础日常操作**（改表 → WebService 运行 → Model_Output 看 KPI；推荐最终用户）。
+- **`excel_用户操作手册.md`**: **日常 Excel 操作**（Model_Input / WebService / Model_Output；推荐最终用户）。
 - **`excel_workbook_api_上手教程.md`**: 安装 Script Lab、API Key、分步联调（比用户手册更偏安装与排错细节）。
 - `excel_js_local_test.md`: 进阶/无头 CLI（`excel_ws_cli.py`）与 WPS 简要说明。
 - `VPS_DEPLOYMENT.md`: VPS 运维与 `simapi.nice-ai.dev` 部署（SSH、systemd、Nginx、certbot）。

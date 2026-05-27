@@ -10,7 +10,9 @@
 | **Model_Output** | 步骤 3：KPI、组成、DBI 对标（只读） |
 | **PFD** | 步骤 4：流程图 + 流股卡片 |
 
-- 默认 xlsx：`Biomass_PFD_Simulator.xlsx`（`export/*.xlsx` 不入 Git）
+- **Excel 分发（当前主线）**：`Biomass_PFD_Simulator.xlsx` + `export/js/WebServiceDemo.js`（邮件 zip：`python3 scripts/package_excel_mail_zip.py`）
+- **WPS 分发（后续）**：`Biomass_PFD_Simulator_WPS.xlsm`（内嵌宏；构建默认生成，`--no-wps` 可跳过）
+- `export/*.xlsx` / `*.xlsm` / `*分发.zip` 不入 Git
 - **Excel 流程图**：`export/assets/流程示意图.png`（PFD 页嵌入，优先于 SVG 自动截图）
 - 可选标注 SVG：`export/assets/pfd_<case>.svg`（构建时生成，供开发参考）
 - **内部模型常数**：`export/vba/ModelInternals.bas` → 导入 Excel VBE，勿放在前端 Sheet
@@ -20,6 +22,7 @@
 ```bash
 python3 scripts/build_simulator_workbook.py
 python3 scripts/build_simulator_workbook.py --case Case-1 --no-run
+# 同时生成 WPS 开箱即用 xlsm（默认）；仅 xlsx：加 --no-wps
 ```
 
 Streamlit 侧边栏可下载同一工作簿。
@@ -27,8 +30,7 @@ Streamlit 侧边栏可下载同一工作簿。
 ## WPS JS / Office JS WebService 轻量联调 Demo
 
 - JS 脚本：`export/js/WebServiceDemo.js`（默认 `https://simapi.nice-ai.dev`）
-- **零基础用户操作手册（推荐）**：`doc/excel_用户操作手册.md`
-- **安装与排错详解**：`doc/excel_workbook_api_上手教程.md`
+- **用户手册（Excel）**：`doc/excel_用户操作手册.md` · **Mac 开发**：`doc/excel_mac_开发联调.md` · **WPS**：`doc/excel_wps_用户操作手册.md`
 - **进阶 / 无头 CLI**：`doc/excel_js_local_test.md`
 - 配置示例（勿提交真实密钥）：`export/js/WebServiceDemo.config.example.js`
 - 生产 API：`https://simapi.nice-ai.dev`（`GET /health`；`POST` 需 `X-API-Key`）

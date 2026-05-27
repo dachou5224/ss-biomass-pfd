@@ -1,0 +1,6 @@
+{
+  "jde_filename": "JDEData.bin",
+  "jde_relationship_type": "http://www.wps.cn/officeDocument/2020/relationships/jsProject",
+  "jde_content_type": "application/vnd.wps-officeDocument.spreadsheetml.jsProject",
+  "note": "若 WPS 打开后宏未加载，请在 WPS 中新建最小 JS 宏另存 xlsm，运行 scripts/capture_wps_jsa_template.py 更新本文件中的 type 字段"
+}

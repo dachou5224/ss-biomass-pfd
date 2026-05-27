@@ -36,9 +36,9 @@
 | API 健康灯 | `Output_API_Health_Table`（绿/黄/红） |
 | 模板校验 | `validateWorkbookTemplate()` + `workbook_template.py` |
 | 无头 E2E | `scripts/excel_ws_cli.py`、`run_excel_headless_e2e.sh` |
-| 教程 | `doc/excel_用户操作手册.md`、`doc/excel_workbook_api_上手教程.md` |
+| 教程 | Excel：`excel_用户操作手册.md`、`excel_mac_开发联调.md`；WPS：`excel_wps_用户操作手册.md` |
 
-生成工作簿：`python3 scripts/build_simulator_workbook.py --case Case-1`（`export/*.xlsx` 不入 Git）
+生成工作簿：`python3 scripts/build_simulator_workbook.py --case Case-1 --no-wps`（Mac Excel 开发可跳过 xlsm；`export/*` 不入 Git）
 
 ### 5) 自动化测试
 - 全量：**87 passed**（含 `test_webservice_demo`、`test_excel_ws_headless`、`test_workbook_template`、`test_gibbs_spike` 等）

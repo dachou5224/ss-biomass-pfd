@@ -4,6 +4,9 @@ __pycache__/
 *.docx
 doc/*.pdf
 export/*.xlsx
+export/*.xlsm
+export/*分发.zip
+!export/template/wps_jsa/**
 export/js/WebServiceDemo.config.local.js
 export/assets/*
 !export/assets/流程示意图.png

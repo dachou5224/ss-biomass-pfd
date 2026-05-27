@@ -42,6 +42,7 @@ from .spreadsheet_ui import (
 )
 
 DEFAULT_EXPORT_PATH = PROJECT_ROOT / "export" / "Biomass_PFD_Simulator.xlsx"
+DEFAULT_WPS_EXPORT_PATH = PROJECT_ROOT / "export" / "Biomass_PFD_Simulator_WPS.xlsm"
 
 SHEET_GUIDE = "Guide"
 SHEET_WS = "WebService"
@@ -267,7 +268,7 @@ def _build_guide(ws, case_id: str, layout: SheetLayout) -> None:
             {
                 "步骤": "2",
                 "模块": SHEET_WS,
-                "任务": "配置 API Key，运行 Script Lab 命令",
+                "任务": "配置口令，在 WPS JS 宏控制台运行命令",
                 "入口": "→ 打开 WebService",
             },
             {
@@ -407,7 +408,7 @@ def _build_webservice(ws, layout: SheetLayout) -> None:
     conn = pd.DataFrame(
         [
             {"配置项": "API 访问密钥", "值": "", "备注": "必填 · 向管理员索取 · 黄色格可编辑"},
-            {"配置项": "脚本路径", "值": WS_SCRIPT_PATH, "备注": "粘贴到 Script Lab → Code 页"},
+            {"配置项": "脚本文件", "值": "WebServiceDemo.js", "备注": "向管理员索取 · 粘贴到 WPS JS 宏（Excel 用 Script Lab Code）"},
         ]
     )
     key_block = _write_table(
@@ -429,9 +430,9 @@ def _build_webservice(ws, layout: SheetLayout) -> None:
     row = layout.blocks[-1].data_end + 2
     quick = pd.DataFrame(
         [
-            {"#": "1", "操作": "安装加载项 Script Lab", "说明": "插入 → 加载项 → 搜索并添加"},
-            {"#": "2", "操作": "粘贴联调脚本", "说明": f"打开 {WS_SCRIPT_PATH}，全选复制到 Code 页"},
-            {"#": "3", "操作": "执行下方两条运行命令", "说明": "日志区自动刷新，无需打开 JS 控制台"},
+            {"#": "1", "操作": "安装 Script Lab 并粘贴 WebServiceDemo.js", "说明": "插入 → 加载项；脚本见 export/js/（WPS 用户用 xlsm 内嵌宏）"},
+            {"#": "2", "操作": "填写访问口令", "说明": "见上方「连接与授权」黄色格并保存"},
+            {"#": "3", "操作": "Script Lab Console 执行下方命令", "说明": "日志区自动刷新；不必打开浏览器控制台"},
             {"#": "4", "操作": "查看结果", "说明": "本页日志 DONE → Model_Output 页 KPI 表"},
         ]
     )
@@ -453,7 +454,7 @@ def _build_webservice(ws, layout: SheetLayout) -> None:
             ws,
             cmds,
             row,
-            title="运行命令（复制到 Script Lab 运行）",
+            title="运行命令（Script Lab Console 逐条粘贴；WPS 用 JS 宏控制台）",
             editable=False,
             col_end=3,
             number_format=None,
@@ -731,7 +732,7 @@ def _build_model_output_placeholder(ws, layout: SheetLayout) -> None:
     msg = pd.DataFrame(
         {
             "说明": [
-                "运行 Script Lab 中 runWebServiceLiteDemo() 后，上表将被 API 结果覆盖。",
+                "运行 runWebServiceLiteDemo() 后，上表将被在线计算结果覆盖。",
                 "完整 INCI/RGPOX 组成表需 Streamlit 仿真或导出时 run_simulation=True。",
             ]
         }
@@ -896,9 +897,21 @@ def _apply_workbook_hyperlinks(wb, layouts: Dict[str, SheetLayout]) -> None:
             _apply_cell_sheet_link(cell, SHEET_OUTPUT, bold=True)
 
 
-def write_simulator_workbook(path: Path | str | None = None, **kwargs: Any) -> Path:
+def write_simulator_workbook(
+    path: Path | str | None = None,
+    *,
+    wps_ready: bool = False,
+    wps_path: Path | str | None = None,
+    **kwargs: Any,
+) -> Path:
     out = Path(path) if path is not None else DEFAULT_EXPORT_PATH
     out.parent.mkdir(parents=True, exist_ok=True)
     ASSETS_DIR.mkdir(parents=True, exist_ok=True)
-    out.write_bytes(build_simulator_workbook(**kwargs))
+    data = build_simulator_workbook(**kwargs)
+    out.write_bytes(data)
+    if wps_ready:
+        from .wps_jsa_pack import write_wps_simulator_workbook
+
+        wps_out = Path(wps_path) if wps_path is not None else DEFAULT_WPS_EXPORT_PATH
+        write_wps_simulator_workbook(data, wps_out)
     return out

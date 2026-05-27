@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any, Dict, List, Literal, Mapping, Optional, Tuple
 
 import pandas as pd
+
+from .backend import run_fixed_temperature_simulation
+from .contracts import SimulationResult
 
 from .data import REFERENCE_CASES, build_chem_df, build_feed_df, build_specs_df
 from .elemental import BIOMASS_ANALYSIS_CHEM_KEYS, BIOMASS_SAMPLES
@@ -15,6 +19,12 @@ from .pfd_diagram import FEED_TO_PFD, PFD_WORKBOOK_IMAGE
 WET_MAIN_SPECIES: Tuple[str, ...] = ("H2", "CO", "CO2", "CH4", "H2O")
 
 SectionId = Literal["INCI", "RGPOX", "SLAG"]
+UiMode = Literal["quick", "feeds", "tuning"]
+
+UI_MODE_OPTIONS: Tuple[Tuple[UiMode, str], ...] = (
+    ("feeds", "进料扩展"),
+    ("tuning", "物性调参"),
+)
 
 
 @dataclass(frozen=True)
@@ -341,6 +351,10 @@ def init_session_state() -> None:
         sess["result"] = None
     if "sidebar_case" not in sess:
         sess["sidebar_case"] = sess["inputs"]["case_id"]
+    if "ui_mode" not in sess or sess["ui_mode"] == "quick":
+        sess["ui_mode"] = "feeds"
+    if "solve_errors" not in sess:
+        sess["solve_errors"] = []
 
 
 def st_session() -> Dict[str, Any]:
@@ -460,6 +474,174 @@ def apply_feed_stream_table(inputs: Dict[str, Any], df: pd.DataFrame) -> None:
         }
 
 
+def feed_stream_sidebar_table(inputs: Mapping[str, Any], section: SectionId) -> pd.DataFrame:
+    """侧栏专用：仅保留流股名 + 三个可编辑数值列（避免宽表把输入列挤出视口）。"""
+    pfd_feeds = dict(inputs.get("pfd_feeds") or {})
+    rows = []
+    for line in lines_by_section(section):
+        data = pfd_feeds.get(
+            line.backend_stream,
+            {
+                "mass_kg_h": 0.0,
+                "temp_c": line.default_temp_c,
+                "pressure_bar": line.default_pressure_bar,
+            },
+        )
+        rows.append(
+            {
+                "流股": line.line_label,
+                "kg_h": float(data.get("mass_kg_h", 0.0)),
+                "T_C": float(data.get("temp_c", line.default_temp_c)),
+                "P_bar": float(data.get("pressure_bar", line.default_pressure_bar)),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def apply_feed_stream_sidebar_table(
+    inputs: Dict[str, Any],
+    df: pd.DataFrame,
+    section: SectionId,
+) -> None:
+    """与 feed_stream_sidebar_table 行序一致写回 pfd_feeds。"""
+    pfd_feeds = inputs.setdefault("pfd_feeds", {})
+    lines = lines_by_section(section)
+    if len(df) != len(lines):
+        return
+    for idx, line in enumerate(lines):
+        row = df.iloc[idx]
+        pfd_feeds[line.backend_stream] = {
+            "mass_kg_h": float(row["kg_h"]),
+            "temp_c": float(row["T_C"]),
+            "pressure_bar": float(row["P_bar"]),
+        }
+
+
+def feed_stream_sidebar_column_config():
+    import streamlit as st
+
+    return {
+        "流股": st.column_config.TextColumn("流股", disabled=True, width="medium"),
+        "kg_h": st.column_config.NumberColumn(
+            "流量 kg/h ✎",
+            format="%.1f",
+            min_value=0.0,
+            step=10.0,
+            width="small",
+        ),
+        "T_C": st.column_config.NumberColumn(
+            "°C ✎", format="%.0f", step=5.0, width="small"
+        ),
+        "P_bar": st.column_config.NumberColumn(
+            "bar ✎", format="%.1f", min_value=0.1, step=0.5, width="small"
+        ),
+    }
+
+
+def _feed_line_state(
+    inputs: Mapping[str, Any],
+    line: PfdFeedLine,
+) -> Dict[str, float]:
+    pfd_feeds = dict(inputs.get("pfd_feeds") or {})
+    data = pfd_feeds.get(line.backend_stream, {})
+    return {
+        "mass_kg_h": float(data.get("mass_kg_h", 0.0)),
+        "temp_c": float(data.get("temp_c", line.default_temp_c)),
+        "pressure_bar": float(data.get("pressure_bar", line.default_pressure_bar)),
+    }
+
+
+def write_pfd_feed_line(
+    inputs: Dict[str, Any],
+    line: PfdFeedLine,
+    *,
+    mass_kg_h: float,
+    temp_c: float,
+    pressure_bar: float,
+) -> None:
+    """写回单条进料（供数字框 UI 与测试使用）。"""
+    inputs.setdefault("pfd_feeds", {})[line.backend_stream] = {
+        "mass_kg_h": float(mass_kg_h),
+        "temp_c": float(temp_c),
+        "pressure_bar": float(pressure_bar),
+    }
+
+
+def render_section_feed_number_inputs(inputs: Dict[str, Any], section: SectionId) -> None:
+    """侧栏/主区：按流股展示数字框（流量 · 温度 · 压力），避免窄侧栏表格裁列。"""
+    import streamlit as st
+
+    case_id = str(inputs.get("case_id", "Case-1"))
+    lines = lines_by_section(section)
+    for idx, line in enumerate(lines):
+        if idx > 0:
+            st.divider()
+        cur = _feed_line_state(inputs, line)
+        st.markdown(
+            f'<div class="sim-feed-line-label"><b>{line.line_label}</b>'
+            f' <span class="sim-feed-pfd">{line.pfd_stream_id}</span></div>',
+            unsafe_allow_html=True,
+        )
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            mass = st.number_input(
+                "流量 kg/h",
+                value=cur["mass_kg_h"],
+                min_value=0.0,
+                step=10.0,
+                format="%.1f",
+                key=f"pfd_{case_id}_{section}_{line.backend_stream}_m",
+                label_visibility="visible",
+            )
+        with c2:
+            temp = st.number_input(
+                "温度 °C",
+                value=cur["temp_c"],
+                step=5.0,
+                format="%.0f",
+                key=f"pfd_{case_id}_{section}_{line.backend_stream}_t",
+            )
+        with c3:
+            press = st.number_input(
+                "压力 bar",
+                value=cur["pressure_bar"],
+                min_value=0.1,
+                step=0.5,
+                format="%.1f",
+                key=f"pfd_{case_id}_{section}_{line.backend_stream}_p",
+            )
+        write_pfd_feed_line(
+            inputs,
+            line,
+            mass_kg_h=float(mass),
+            temp_c=float(temp),
+            pressure_bar=float(press),
+        )
+
+
+def render_o2in_number_inputs(inputs: Dict[str, Any]) -> None:
+    """氧化剂 O2IN：三组分 mol% 数字框。"""
+    import streamlit as st
+
+    o2in = inputs.setdefault("o2in_composition", {})
+    case_id = str(inputs.get("case_id", "Case-1"))
+    labels = {"O2": "O₂ mol%", "N2": "N₂ mol%", "Ar": "Ar mol%"}
+    cols = st.columns(3)
+    for col, sp in zip(cols, O2IN_COMPOSITION_KEYS):
+        with col:
+            o2in[sp] = float(
+                st.number_input(
+                    labels[sp],
+                    value=float(o2in.get(sp, 0.0)),
+                    min_value=0.0,
+                    max_value=100.0,
+                    step=0.05,
+                    format="%.3f",
+                    key=f"o2in_{case_id}_{sp}",
+                )
+            )
+
+
 def biomass_property_table(inputs: Mapping[str, Any]) -> pd.DataFrame:
     biomass = dict(inputs.get("biomass") or {})
     rows = []
@@ -536,7 +718,7 @@ def tuning_table_column_config():
         "Parameter": st.column_config.TextColumn("Parameter", disabled=True, width="medium"),
         "Description": st.column_config.TextColumn("Description", disabled=True),
         "Kind": st.column_config.TextColumn("Kind", disabled=True, width="small"),
-        "Value": st.column_config.TextColumn("Value", width="medium"),
+        "Value": st.column_config.TextColumn("Value ✎", width="medium", help="可编辑"),
         "Reference": st.column_config.TextColumn("Ref", disabled=True, width="small"),
     }
 
@@ -550,10 +732,24 @@ def stream_table_column_config():
         "Description": st.column_config.TextColumn("Description", disabled=True, width="medium"),
         "Phase": st.column_config.TextColumn("Phase", disabled=True, width="small"),
         "MassFlow_kg_h": st.column_config.NumberColumn(
-            "Mass Flow", format="%.2f", min_value=0.0, step=10.0, width="medium"
+            "Mass Flow ✎",
+            format="%.2f",
+            min_value=0.0,
+            step=10.0,
+            width="medium",
+            help="可编辑：质量流量 kg/h",
         ),
-        "Temp_C": st.column_config.NumberColumn("T", format="%.1f", step=5.0, width="small"),
-        "Pressure_bar": st.column_config.NumberColumn("P", format="%.1f", min_value=0.1, step=0.5, width="small"),
+        "Temp_C": st.column_config.NumberColumn(
+            "T ✎", format="%.1f", step=5.0, width="small", help="可编辑：温度 °C"
+        ),
+        "Pressure_bar": st.column_config.NumberColumn(
+            "P ✎",
+            format="%.1f",
+            min_value=0.1,
+            step=0.5,
+            width="small",
+            help="可编辑：压力 bar",
+        ),
     }
 
 
@@ -581,6 +777,304 @@ def pfd_feed_summary_df(inputs: Mapping[str, Any]) -> pd.DataFrame:
 def wet_composition_df(title: str, comp: Dict[str, float]) -> pd.DataFrame:
     rows = [{"组分": sp, "湿基 vol%": round(comp.get(sp, 0.0), 3)} for sp in WET_MAIN_SPECIES]
     return pd.DataFrame(rows)
+
+
+def _section_feed_kg_h(inputs: Mapping[str, Any], section: SectionId) -> float:
+    pfd_feeds = dict(inputs.get("pfd_feeds") or {})
+    total = 0.0
+    for line in lines_by_section(section):
+        total += float(pfd_feeds.get(line.backend_stream, {}).get("mass_kg_h", 0.0))
+    return total
+
+
+def feed_balance_preview(inputs: Mapping[str, Any]) -> Dict[str, float]:
+    """未求解前的进料侧 KPI（与 Excel simulate-lite 口径接近）。"""
+    pfd_feeds = dict(inputs.get("pfd_feeds") or {})
+    total = sum(float(v.get("mass_kg_h", 0.0)) for v in pfd_feeds.values())
+    negative = sum(
+        1 for v in pfd_feeds.values() if float(v.get("mass_kg_h", 0.0)) < -1e-9
+    )
+    o2in = dict(inputs.get("o2in_composition") or {})
+    o2in_sum = sum(float(o2in.get(sp, 0.0)) for sp in O2IN_COMPOSITION_KEYS)
+    return {
+        "total_feed_kg_h": total,
+        "inci_feed_kg_h": _section_feed_kg_h(inputs, "INCI"),
+        "rgpox_feed_kg_h": _section_feed_kg_h(inputs, "RGPOX"),
+        "slag_feed_kg_h": _section_feed_kg_h(inputs, "SLAG"),
+        "o2in_sum_mol_pct": o2in_sum,
+        "negative_feed_count": float(negative),
+    }
+
+
+def validate_inputs(inputs: Mapping[str, Any]) -> List[str]:
+    """提交求解前的轻量校验（人话提示）。"""
+    errors: List[str] = []
+    preview = feed_balance_preview(inputs)
+    if preview["negative_feed_count"] > 0:
+        errors.append("存在负的进料流量（kg/h），请检查各流股表。")
+    o2_sum = preview["o2in_sum_mol_pct"]
+    if abs(o2_sum - 100.0) > 0.5:
+        errors.append(
+            f"O2IN 组分 mol% 合计为 {o2_sum:.2f}%，应接近 100%。"
+        )
+    if preview["total_feed_kg_h"] <= 0:
+        errors.append("总进料为 0，请至少填写一条流股的质量流量。")
+    biomass = dict(inputs.get("biomass") or {})
+    for attr, label, _ in BIOMASS_UI_FIELDS:
+        v = float(biomass.get(attr, 0.0))
+        if v < 0:
+            errors.append(f"生物质 {label} 不能为负数。")
+            break
+    return errors
+
+
+def run_simulation(inputs: Mapping[str, Any]) -> SimulationResult:
+    return run_fixed_temperature_simulation(
+        build_feed_df_from_inputs(inputs),
+        build_specs_df_from_inputs(inputs),
+        build_chem_df_from_inputs(inputs),
+    )
+
+
+def result_card_cells(
+    inputs: Mapping[str, Any],
+    res: SimulationResult | None,
+) -> List[Tuple[str, str, str]]:
+    """结果牌网格：有求解结果用模型输出，否则用进料预览。"""
+    if res is not None:
+        match = res.matched_case or "自定义进料"
+        rmsd = res.rmsd_inci_primary_pct
+        rmsd_s = f"{rmsd:.2f}%" if rmsd is not None else "—"
+        return [
+            ("13PGI-1 气体", f"{res.inci_top_kg_h:.0f}", "kg/h"),
+            ("15PGR 气体", f"{res.pox_gas_kg_h:.0f}", "kg/h"),
+            ("INCI 渣", f"{res.inci_slag_kg_h:.0f}", "kg/h"),
+            ("Tar", f"{res.inci_tar_kg_h:.1f}", "kg/h"),
+            ("对标", str(match), ""),
+            ("INCI RMSD", rmsd_s, ""),
+        ]
+    prev = feed_balance_preview(inputs)
+    return [
+        ("总进料", f"{prev['total_feed_kg_h']:.0f}", "kg/h"),
+        ("INCI 进料", f"{prev['inci_feed_kg_h']:.0f}", "kg/h"),
+        ("RGPOX 进料", f"{prev['rgpox_feed_kg_h']:.0f}", "kg/h"),
+        ("O2IN 合计", f"{prev['o2in_sum_mol_pct']:.2f}", "mol%"),
+        ("负流量条数", f"{int(prev['negative_feed_count'])}", "条"),
+        ("系统压力", f"{float(inputs.get('system_p_bar', 0)):.1f}", "bar"),
+    ]
+
+
+def result_status(
+    inputs: Mapping[str, Any],
+    res: SimulationResult | None,
+    solve_errors: List[str],
+) -> Tuple[Literal["idle", "ready", "ok", "warn", "error"], str]:
+    if solve_errors:
+        return "error", "输入待修正"
+    if res is not None:
+        return ("ok", "求解完成") if res.matched_case else ("warn", "已求解 · 请核对")
+    if inputs.get("pfd_feeds"):
+        return "ready", "待计算（进料已填）"
+    return "idle", "待填写进料"
+
+
+def format_results_markdown(
+    inputs: Mapping[str, Any],
+    res: SimulationResult | None,
+) -> str:
+    lines = [
+        f"# 生物质气化计算 · {inputs.get('case_id', '')}",
+        "",
+    ]
+    if res is None:
+        prev = feed_balance_preview(inputs)
+        lines.extend(
+            [
+                "## 进料预览（未求解）",
+                f"- 总进料: {prev['total_feed_kg_h']:.2f} kg/h",
+                f"- INCI: {prev['inci_feed_kg_h']:.2f} kg/h",
+                f"- RGPOX: {prev['rgpox_feed_kg_h']:.2f} kg/h",
+                f"- O2IN mol% 合计: {prev['o2in_sum_mol_pct']:.2f}",
+                "",
+            ]
+        )
+        return "\n".join(lines)
+
+    lines.extend(
+        [
+            "## 求解结果",
+            f"- 对标工况: {res.matched_case or '无匹配'}",
+            f"- 13PGI-1 气体: {res.inci_top_kg_h:.2f} kg/h",
+            f"- 13LBS 渣: {res.inci_slag_kg_h:.2f} kg/h",
+            f"- Tar: {res.inci_tar_kg_h:.2f} kg/h",
+            f"- 15PGR 气体: {res.pox_gas_kg_h:.2f} kg/h",
+            f"- POX 灰: {res.pox_ash_kg_h:.2f} kg/h",
+        ]
+    )
+    if res.rmsd_inci_primary_pct is not None:
+        lines.append(f"- INCI 湿基主组分 RMSD: {res.rmsd_inci_primary_pct:.2f}%")
+    if res.rmsd_pox_primary_pct is not None:
+        lines.append(f"- RGPOX 湿基主组分 RMSD: {res.rmsd_pox_primary_pct:.2f}%")
+    lines.append("")
+    return "\n".join(lines)
+
+
+# 干基合成气 LHV 估算（MJ/kg，用于冷煤气效率代理）
+_BIOMASS_LHV_MJ_PER_KG = 18.5
+_SYNGAS_LHV_KJ_PER_KG: Dict[str, float] = {
+    "H2": 120.0,
+    "CO": 10.1,
+    "CH4": 50.2,
+    "CO2": 0.0,
+    "N2": 0.0,
+    "Ar": 0.0,
+}
+_SYNGAS_MW: Dict[str, float] = {
+    "H2": 2.016,
+    "CO": 28.01,
+    "CH4": 16.04,
+    "CO2": 44.01,
+    "N2": 28.01,
+    "Ar": 39.95,
+}
+
+
+def _dry_syngas_lhv_mj_per_kg(comp: Mapping[str, float]) -> float:
+    """由干基 vol% 估算合成气质量加权低位热值 (MJ/kg)。"""
+    mass_weighted_lhv = 0.0
+    mass_denom = 0.0
+    for sp, mw in _SYNGAS_MW.items():
+        y = max(float(comp.get(sp, 0.0)), 0.0)
+        if y <= 0.0:
+            continue
+        w = y * mw
+        mass_denom += w
+        mass_weighted_lhv += w * _SYNGAS_LHV_KJ_PER_KG.get(sp, 0.0)
+    if mass_denom <= 0.0:
+        return 0.0
+    return mass_weighted_lhv / mass_denom / 1000.0
+
+
+def carbon_conversion_pct(res: SimulationResult) -> Optional[float]:
+    """INCI 碳元素气相转化率（含 Tar 计入气相 C）。"""
+    rows = (
+        res.inci_mass_audit.element_balance
+        if res.inci_mass_audit is not None
+        else res.element_balance
+    )
+    for row in rows:
+        if row.stage == "INCI" and row.element == "C" and row.inlet_mol_h > 1e-9:
+            return 100.0 * row.outlet_gas_mol_h / row.inlet_mol_h
+    return None
+
+
+def h2_co_ratio_dry(res: SimulationResult) -> Optional[float]:
+    """INCI 出口干基 H2/CO（vol% 比 ≈ 摩尔比）。"""
+    comp = res.inci_comp_dry_vol_pct
+    co = float(comp.get("CO", 0.0))
+    if co <= 1e-9:
+        return None
+    return float(comp.get("H2", 0.0)) / co
+
+
+def cold_gas_efficiency_pct(
+    inputs: Mapping[str, Any],
+    res: SimulationResult,
+) -> Optional[float]:
+    """冷煤气效率代理：合成气热值 / 生物质进料热值（基于干基组成与流量）。"""
+    pfd = dict(inputs.get("pfd_feeds") or {})
+    bio_kg = float((pfd.get("Biomass") or {}).get("mass_kg_h", 0.0))
+    if bio_kg <= 1e-6:
+        return None
+    lhv_gas = _dry_syngas_lhv_mj_per_kg(res.inci_comp_dry_vol_pct)
+    if lhv_gas <= 0.0:
+        return None
+    energy_out = res.inci_top_kg_h * lhv_gas
+    energy_in = bio_kg * _BIOMASS_LHV_MJ_PER_KG
+    if energy_in <= 0.0:
+        return None
+    return min(100.0, 100.0 * energy_out / energy_in)
+
+
+def _fmt_metric(value: Optional[float], *, digits: int = 1, suffix: str = "") -> str:
+    if value is None:
+        return "—"
+    return f"{value:.{digits}f}{suffix}"
+
+
+def performance_summary_tiles(
+    inputs: Mapping[str, Any],
+    res: SimulationResult | None,
+) -> List[Tuple[str, str, str, str]]:
+    """右侧性能汇总：(标签, 值, 单位, 语义色 blue|green|orange|red|purple|teal)。"""
+    if res is not None:
+        rmsd = res.rmsd_inci_primary_pct
+        cge = cold_gas_efficiency_pct(inputs, res)
+        c_conv = carbon_conversion_pct(res)
+        h2co = h2_co_ratio_dry(res)
+        return [
+            ("冷煤气效率", _fmt_metric(cge), "%", "blue"),
+            ("碳转化率", _fmt_metric(c_conv), "%", "green"),
+            ("H2/CO 比", _fmt_metric(h2co, digits=2), "", "orange"),
+            ("粗合成气产量", f"{res.inci_pgi_total_kg_h:.0f}", "kg/h", "red"),
+            ("INCI RMSD", _fmt_metric(rmsd), "%", "purple"),
+            ("RGPOX 气体", f"{res.pox_gas_kg_h:.0f}", "kg/h", "teal"),
+        ]
+    prev = feed_balance_preview(inputs)
+    return [
+        ("总进料", f"{prev['total_feed_kg_h']:.0f}", "kg/h", "blue"),
+        ("INCI 进料", f"{prev['inci_feed_kg_h']:.0f}", "kg/h", "green"),
+        ("O2IN 合计", f"{prev['o2in_sum_mol_pct']:.1f}", "mol%", "orange"),
+        ("系统压力", f"{float(inputs.get('system_p_bar', 0)):.1f}", "bar", "purple"),
+    ]
+
+
+def bottom_kpi_strip(
+    inputs: Mapping[str, Any],
+    res: SimulationResult | None,
+) -> List[Tuple[str, str, str, str]]:
+    """底部横向 KPI 条。"""
+    if res is not None:
+        return [
+            ("13PGI-1 气体", f"{res.inci_top_kg_h:.0f}", "kg/h", "blue"),
+            ("13LBS 渣", f"{res.inci_slag_kg_h:.0f}", "kg/h", "green"),
+            ("Tar", f"{res.inci_tar_kg_h:.1f}", "kg/h", "orange"),
+            ("15PGR 气体", f"{res.pox_gas_kg_h:.0f}", "kg/h", "red"),
+            ("POX 灰", f"{res.pox_ash_kg_h:.1f}", "kg/h", "purple"),
+            ("对标", str(res.matched_case or "自定义"), "", "teal"),
+        ]
+    prev = feed_balance_preview(inputs)
+    return [
+        ("总进料", f"{prev['total_feed_kg_h']:.0f}", "kg/h", "blue"),
+        ("INCI", f"{prev['inci_feed_kg_h']:.0f}", "kg/h", "green"),
+        ("RGPOX", f"{prev['rgpox_feed_kg_h']:.0f}", "kg/h", "orange"),
+        ("SLAG", f"{prev['slag_feed_kg_h']:.0f}", "kg/h", "red"),
+        ("O2IN Σ", f"{prev['o2in_sum_mol_pct']:.1f}", "%", "purple"),
+        ("负流量", f"{int(prev['negative_feed_count'])}", "条", "teal"),
+    ]
+
+
+def format_results_json(
+    inputs: Mapping[str, Any],
+    res: SimulationResult | None,
+) -> str:
+    payload: Dict[str, Any] = {
+        "case_id": inputs.get("case_id"),
+        "system_p_bar": inputs.get("system_p_bar"),
+        "feed_preview": feed_balance_preview(inputs),
+    }
+    if res is not None:
+        payload["solve"] = {
+            "matched_case": res.matched_case,
+            "inci_top_kg_h": res.inci_top_kg_h,
+            "inci_slag_kg_h": res.inci_slag_kg_h,
+            "inci_tar_kg_h": res.inci_tar_kg_h,
+            "pox_gas_kg_h": res.pox_gas_kg_h,
+            "pox_ash_kg_h": res.pox_ash_kg_h,
+            "rmsd_inci_primary_pct": res.rmsd_inci_primary_pct,
+            "rmsd_pox_primary_pct": res.rmsd_pox_primary_pct,
+        }
+    return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
 def comparison_wet_df(expected: Dict[str, float], model: Dict[str, float]) -> pd.DataFrame:
