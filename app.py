@@ -24,6 +24,7 @@ from simulator.dcs_theme import (
     render_performance_panel,
     render_result_card,
     render_user_input_rail_header,
+    render_workflow_overview,
     section_label,
     tools_bar,
 )
@@ -78,6 +79,8 @@ inputs = st.session_state.inputs
 res = st.session_state.result
 solve_errors: list[str] = list(st.session_state.get("solve_errors") or [])
 case_ids = list(REFERENCE_CASES.keys())
+preview = feed_balance_preview(inputs)
+o2_ok = abs(preview["o2in_sum_mol_pct"] - 100.0) <= 0.5
 
 card_status, card_label = result_status(inputs, res, solve_errors)
 run_state = "idle"
@@ -127,19 +130,17 @@ with st.sidebar:
     with input_zone("③ 氧化剂 O2IN", tag="3", subtitle="三个 mol% 数字框，合计应接近 100"):
         render_o2in_number_inputs(inputs)
 
-    prev = feed_balance_preview(inputs)
-    o2_ok = abs(prev["o2in_sum_mol_pct"] - 100.0) <= 0.5
     st.markdown(
         f'<div class="sim-feed-status">'
-        f'<div>INCI 进料合计：<b>{prev["inci_feed_kg_h"]:.0f}</b> kg/h</div>'
-        f'<div>O2IN 组分合计：<b>{prev["o2in_sum_mol_pct"]:.2f}</b>%'
+        f'<div>INCI 进料合计：<b>{preview["inci_feed_kg_h"]:.0f}</b> kg/h</div>'
+        f'<div>O2IN 组分合计：<b>{preview["o2in_sum_mol_pct"]:.2f}</b>%'
         f'{" ✓" if o2_ok else " · 建议调至 100%"}</div>'
         f"</div>",
         unsafe_allow_html=True,
     )
 
     with action_bar():
-        if st.button("重新计算", type="primary", use_container_width=True):
+        if st.button("运行求解并刷新结果", type="primary", use_container_width=True):
             errs = validate_inputs(inputs)
             st.session_state.solve_errors = errs
             if errs:
@@ -183,22 +184,53 @@ with st.sidebar:
         except ImportError as exc:
             st.caption(f"Excel: {exc}")
 
-    st.caption("主区「更多输入」可编辑 RGPOX / SLAG / 生物质 / 调参")
+    st.caption("主区「扩展输入」可编辑 RGPOX / SLAG / 生物质 / 调参")
 
 render_dcs_header(
     case_id=inputs["case_id"],
     run_state=run_state,
-    subtitle="左侧输入 → 重新计算 → 右侧与主区 Tab 查看只读结果",
+    subtitle="左侧输入 → 运行求解 → 首个 Tab 查看结果总览 / 右侧查看性能汇总",
+)
+
+if solve_errors:
+    overview_notice = solve_errors[0]
+    overview_tone = "error"
+elif res is not None and res.matched_case:
+    overview_notice = f"已完成 {res.matched_case} 求解，对标表与气体组成已刷新。"
+    overview_tone = "ok"
+elif res is not None:
+    overview_notice = "自定义工况已求解；当前结果有效，但不参与 Case-1/2/3 DBI 对标。"
+    overview_tone = "info"
+elif o2_ok:
+    overview_notice = "输入已基本就绪；点击「运行求解并刷新结果」后，首个 Tab 会直接显示结果总览。"
+    overview_tone = "info"
+else:
+    overview_notice = "先把 O2IN 组分调到接近 100%，再运行求解，可避免来回试错。"
+    overview_tone = "warn"
+
+match_label = res.matched_case if res is not None and res.matched_case else ("自定义工况" if res is not None else inputs["case_id"])
+render_workflow_overview(
+    [
+        (
+            "输入状态",
+            "待修正" if solve_errors else ("可计算" if o2_ok else "需核对 O2IN"),
+            f"负流量 {int(preview['negative_feed_count'])} 条",
+        ),
+        ("总进料", f"{preview['total_feed_kg_h']:.0f} kg/h", f"INCI {preview['inci_feed_kg_h']:.0f} kg/h"),
+        ("氧化剂合计", f"{preview['o2in_sum_mol_pct']:.2f} mol%", "建议维持在 100% 附近"),
+        ("当前工况", str(match_label), "模板工况或已求解的自定义工况"),
+    ],
+    notice=overview_notice,
+    tone=overview_tone,
 )
 
 if solve_errors:
     for msg in solve_errors:
         st.error(msg)
 elif res is None:
-    prev = feed_balance_preview(inputs)
-    if abs(prev["o2in_sum_mol_pct"] - 100.0) > 0.05:
+    if abs(preview["o2in_sum_mol_pct"] - 100.0) > 0.05:
         st.warning(
-            f"O2IN 组分合计 {prev['o2in_sum_mol_pct']:.2f}%（建议 100%）。"
+            f"O2IN 组分合计 {preview['o2in_sum_mol_pct']:.2f}%（建议 100%）。"
         )
 
 col_main, col_side = st.columns([3.2, 1], gap="medium")
@@ -210,14 +242,9 @@ with col_side:
         st.caption("冷煤气效率为基于干基组成与流量的估算代理。")
 
 with col_main:
-    tab_pfd, tab_result, tab_more = st.tabs(
-        ["工艺流程图", "结果分析", "更多输入"]
+    tab_result, tab_pfd, tab_more = st.tabs(
+        ["结果总览", "工艺流程图", "扩展输入"]
     )
-
-    with tab_pfd:
-        with output_zone("工艺流程图", subtitle="只读 · 随进料与求解更新"):
-            faceplate_image(pfd_image_path(), "工艺流程图")
-        render_kpi_strip(bottom_kpi_strip(inputs, res))
 
     with tab_result:
         with output_zone("关键指标", subtitle="只读 · 求解后更新"):
@@ -257,7 +284,7 @@ with col_main:
                 if res.matched_case:
                     st.success(f"工况匹配 · {res.matched_case}")
                 else:
-                    st.warning("自定义进料 — 未匹配 Case-1/2/3 签名")
+                    st.info("自定义工况已求解 · 当前结果不参与 Case-1/2/3 DBI 对标。")
 
                 out_l, out_r = st.columns(2)
                 with out_l:
@@ -325,6 +352,11 @@ with col_main:
                         hide_index=True,
                         use_container_width=True,
                     )
+
+    with tab_pfd:
+        with output_zone("工艺流程图", subtitle="只读 · 随进料与求解更新"):
+            faceplate_image(pfd_image_path(), "工艺流程图")
+        render_kpi_strip(bottom_kpi_strip(inputs, res))
 
     with tab_more:
         st.markdown(

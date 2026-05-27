@@ -609,18 +609,78 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(.sim-zone-marker.sim-zone-in
   font-weight: 600 !important;
   color: #92400e !important;
 }
-.sim-output-rail-title {
-  font-size: 0.9rem;
-  font-weight: 700;
-  color: #475569;
-  margin-bottom: 8px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--sim-border-soft);
-}
-.sim-side-panel.output {
-  background: var(--sim-output-bg);
-  border-color: var(--sim-output-border);
-}
+  .sim-output-rail-title {
+   font-size: 0.9rem;
+   font-weight: 700;
+   color: #475569;
+   margin-bottom: 8px;
+   padding-bottom: 6px;
+   border-bottom: 1px solid var(--sim-border-soft);
+  }
+ .sim-overview-strip {
+   display: grid;
+   grid-template-columns: repeat(4, minmax(0, 1fr));
+   gap: 10px;
+   margin-bottom: 12px;
+ }
+ @media (max-width: 1100px) {
+   .sim-overview-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+ }
+ .sim-overview-card {
+   background: var(--sim-card);
+   border: 1px solid var(--sim-border);
+   border-radius: 12px;
+   padding: 12px 14px;
+   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+ }
+ .sim-overview-card .label {
+   font-size: 0.68rem;
+   color: var(--sim-muted);
+ }
+ .sim-overview-card .value {
+   font-size: 1.05rem;
+   font-weight: 700;
+   color: var(--sim-text);
+   margin-top: 6px;
+ }
+ .sim-overview-card .meta {
+   font-size: 0.72rem;
+   color: var(--sim-muted);
+   margin-top: 4px;
+   line-height: 1.4;
+ }
+ .sim-overview-callout {
+   border-radius: 12px;
+   padding: 10px 14px;
+   margin-bottom: 14px;
+   font-size: 0.82rem;
+   line-height: 1.5;
+   border: 1px solid var(--sim-border);
+ }
+ .sim-overview-callout.info {
+   background: #eff6ff;
+   border-color: #bfdbfe;
+   color: #1d4ed8;
+ }
+ .sim-overview-callout.ok {
+   background: #ecfdf5;
+   border-color: #bbf7d0;
+   color: #166534;
+ }
+ .sim-overview-callout.warn {
+   background: #fff7ed;
+   border-color: #fed7aa;
+   color: #9a3412;
+ }
+ .sim-overview-callout.error {
+   background: #fef2f2;
+   border-color: #fecaca;
+   color: #991b1b;
+ }
+ .sim-side-panel.output {
+   background: var(--sim-output-bg);
+   border-color: var(--sim-output-border);
+  }
 .sim-side-panel.output .sim-side-title::after {
   content: " · 只读";
   font-size: 0.68rem;
@@ -849,6 +909,30 @@ def render_performance_panel(
         f'<div class="sim-side-panel output">'
         f'<div class="sim-side-title">{title}</div>'
         f'<div class="sim-kpi-grid">{grid}</div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_workflow_overview(
+    cards: list[tuple[str, str, str]],
+    *,
+    notice: str = "",
+    tone: Literal["info", "ok", "warn", "error"] = "info",
+) -> None:
+    parts = []
+    for label, value, meta in cards:
+        meta_html = f'<div class="meta">{meta}</div>' if meta else ""
+        parts.append(
+            f'<div class="sim-overview-card">'
+            f'<div class="label">{label}</div>'
+            f'<div class="value">{value}</div>'
+            f"{meta_html}</div>"
+        )
+    notice_html = (
+        f'<div class="sim-overview-callout {tone}">{notice}</div>' if notice else ""
+    )
+    st.markdown(
+        f'<div class="sim-overview-strip">{"".join(parts)}</div>{notice_html}',
         unsafe_allow_html=True,
     )
 

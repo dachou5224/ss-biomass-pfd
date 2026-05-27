@@ -872,7 +872,7 @@ def result_status(
     if solve_errors:
         return "error", "输入待修正"
     if res is not None:
-        return ("ok", "求解完成") if res.matched_case else ("warn", "已求解 · 请核对")
+        return ("ok", "求解完成") if res.matched_case else ("ok", "自定义工况已求解")
     if inputs.get("pfd_feeds"):
         return "ready", "待计算（进料已填）"
     return "idle", "待填写进料"

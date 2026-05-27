@@ -1,6 +1,6 @@
 # Status Report - ss-biomass-pfd
 
-## 当前进展（2026-05-25）
+## 当前进展（2026-05-27）
 
 ### 1) 模型里程碑
 - INCI Phase 7A：**已收口**（Case-1 湿基对标完成）。
@@ -11,6 +11,8 @@
 ### 2) 产品主线
 - 已停止「全量 VBA 迁移」；主线为 **Excel/WPS 前端 + Python API**。
 - 并行保留：**Streamlit DCS UI**（`web_ui.py` / `dcs_theme.py`）、**Gibbs Spike** Excel 工具链（非主路径）。
+- Streamlit UI 已完成一轮面向操作员流程的体验收敛：**结果总览前置为首个 Tab、顶部增加运行准备总览、自定义工况不再误报为 warning**。
+- React + Vite Web 前端迁移已启动：新增 `frontend/` MVP 骨架，并补上 `/v1/compute/simulate-full` 纯计算接口供 Web UI 调用。
 
 ### 3) 生产 API（P0/P1 完成）
 | 项 | 状态 |
@@ -24,6 +26,7 @@
 接口（纯计算契约）：
 - `GET /health`
 - `POST /v1/compute/simulate-lite`
+- `POST /v1/compute/simulate-full`
 - Excel 适配层：`/v1/demo/*`（兼容）
 
 ### 4) Excel Spread Simulator 前端
@@ -41,7 +44,7 @@
 生成工作簿：`python3 scripts/build_simulator_workbook.py --case Case-1 --no-wps`（Mac Excel 开发可跳过 xlsm；`export/*` 不入 Git）
 
 ### 5) 自动化测试
-- 全量：**87 passed**（含 `test_webservice_demo`、`test_excel_ws_headless`、`test_workbook_template`、`test_gibbs_spike` 等）
+- 全量：**96 passed**（含 `test_webservice_demo`、`test_excel_ws_headless`、`test_workbook_template`、`test_gibbs_spike`、`test_web_ui_helpers` 等）
 - 联网 E2E：设置 `SIM_API_KEY` 或 `SKIP_NETWORK_TESTS=1` 跳过
 
 ### 6) Git / 发布
@@ -78,7 +81,9 @@
 2. 联调前运行 `validateWorkbookTemplate()`；失败看 WebService **TEMPLATE/修复** 行。  
 3. 无头/CI 用 `excel_ws_cli.py --e2e`；生产 Key 用 `SIM_API_KEY` 环境变量。  
 4. VPS 同步：`./scripts/sync_vps.sh`；巡检：`deploy/vps_health_check.sh`。  
-5. 勿扩展 VBA 主路径；勿用 trycloudflare 作生产。
+5. Streamlit 当前推荐操作顺序：左侧输入 → **运行求解并刷新结果** → 首个 Tab 查看结果总览。  
+6. 若要在本机继续做 Safari 自动化审查，需手动开启 Safari Develop 菜单下的 **Allow Remote Automation** 与 **Allow JavaScript from Apple Events**。  
+7. 勿扩展 VBA 主路径；勿用 trycloudflare 作生产。
 
 ---
 
@@ -107,4 +112,4 @@ curl -sS https://simapi.nice-ai.dev/health
 
 ## 待办（摘要）
 
-见 `TODO.md`：P0/P1/P2 大部分已完成；剩余 **接口版本策略（/v2）** 与持续合规提醒。
+见 `TODO.md`：P0/P1/P2 大部分已完成；当前新增 **React + Vite 前端 MVP 收口 / VPS 静态托管落地**。

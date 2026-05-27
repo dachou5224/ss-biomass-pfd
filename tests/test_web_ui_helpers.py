@@ -16,6 +16,7 @@ from simulator.web_ui import (
     h2_co_ratio_dry,
     lines_by_section,
     performance_summary_tiles,
+    result_status,
     run_simulation,
     validate_inputs,
     write_pfd_feed_line,
@@ -64,3 +65,13 @@ def test_performance_summary_tiles_populated_after_solve():
     assert cold_gas_efficiency_pct(inputs, res) is not None
     assert carbon_conversion_pct(res) is not None
     assert h2_co_ratio_dry(res) is not None
+
+
+def test_result_status_treats_custom_solution_as_completed():
+    inputs = default_inputs("Case-1")
+    inputs["pfd_feeds"]["Biomass"]["mass_kg_h"] = 4200.0
+    res = run_simulation(inputs)
+    status, label = result_status(inputs, res, [])
+    assert res.matched_case is None
+    assert status == "ok"
+    assert label == "自定义工况已求解"

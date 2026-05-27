@@ -57,6 +57,43 @@ Response:
 1. 不返回任何命名区域、单元格地址、工作表名称等 UI 信息。
 2. 字段语义稳定；`/v1` 下只做向后兼容扩展。
 
+### `POST /v1/compute/simulate-full`
+
+用途：为 Web 前端迁移提供**完整纯计算结果**，替代当前 Streamlit 本地求解视图。
+
+Response（节选）：
+
+```json
+{
+  "status": "ok",
+  "checks": {
+    "total_feed_kg_h": 8293.5,
+    "o2in_sum_mol_pct": 100.0,
+    "negative_feed_count": 0
+  },
+  "result_summary": {
+    "matched_case": "Case-1",
+    "inci_top_kg_h": 5621.3,
+    "inci_tar_kg_h": 18.5,
+    "pox_gas_kg_h": 4155.2
+  },
+  "performance": {
+    "cold_gas_efficiency_pct": 71.2,
+    "carbon_conversion_pct": 90.1,
+    "h2_co_ratio_dry": 1.84
+  },
+  "compositions": {
+    "inci_wet_vol_pct": { "H2": 21.4, "CO": 17.8 },
+    "rgpox_wet_vol_pct": { "H2": 28.1, "CO": 33.2 }
+  }
+}
+```
+
+约束：
+
+1. 返回的是**计算语义结果**（summary / performance / compositions / audit tables），不包含任何 UI 布局或单元格坐标。
+2. Web 前端推荐同源代理到 `/api/*`，由 Nginx 转发到 `127.0.0.1:8765`，避免浏览器跨域依赖。
+
 ## 3. Excel Adapter Contract (Compatibility Layer)
 
 ### `POST /v1/demo/simulate-lite`
@@ -90,7 +127,7 @@ Response 在纯计算结果基础上增加 Excel 映射结构：
 
 1. 后端只关心输入语义与计算结果，不关心 Excel 布局。
 2. Excel 命名区域映射由 JS 客户端负责（`export/js/WebServiceDemo.js`）。
-3. 未来 UI 布局调整不应触发后端计算接口变更。
+3. React/Vite Web 前端同样只消费纯计算字段；未来 UI 布局调整不应触发后端计算接口变更。
 
 ## 5. Security & Runtime Config (Phase C)
 

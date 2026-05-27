@@ -136,6 +136,7 @@ def print_startup_routes(host: str, port: int) -> None:
     print(f"Demo service started: http://{host}:{port}")
     print("GET  /health")
     print("POST /v1/compute/simulate-lite")
+    print("POST /v1/compute/simulate-full")
     print("POST /v1/demo/input-read")
     print("POST /v1/demo/output-pack")
     print("POST /v1/demo/simulate-lite")

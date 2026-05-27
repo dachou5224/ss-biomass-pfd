@@ -1,6 +1,6 @@
 # ss-biomass-pfd VPS 运维与部署
 
-本文说明如何在个人 VPS（`nice-ai.dev` 体系）上部署 **Excel/WPS 联调 API**（`simapi.nice-ai.dev`），并与相邻项目（`bayes_EPL`、`coros-pulse-ai`）保持同一运维习惯：**SSH + systemd + Nginx + certbot**。
+本文说明如何在个人 VPS（`nice-ai.dev` 体系）上部署 **Excel/WPS 联调 API**（`simapi.nice-ai.dev`），以及新的 **React + Vite 静态前端**（建议独立域名如 `app.nice-ai.dev`），并与相邻项目保持同一运维习惯：**SSH + systemd + Nginx + certbot**。
 
 ## 1. 环境与访问
 
@@ -13,6 +13,7 @@
 | API 安装路径 | `/opt/ss-biomass-pfd` |
 | 本地监听 | `127.0.0.1:8765`（仅 Nginx 反代，不对外暴露） |
 | 对外域名 | `https://simapi.nice-ai.dev` |
+| 前端构建目录 | `/opt/ss-biomass-pfd/frontend/dist` |
 
 连通性检查（在本机执行）：
 
@@ -44,6 +45,8 @@ sudo bash deploy/deploy.sh
 - 安装并 `enable --now` systemd 单元 `ss-biomass-api`
 - 安装 Nginx 站点 `simapi.nice-ai.dev`（含限流、`client_max_body_size`）
 - 在 DNS 已生效时尝试 `certbot --nginx -d simapi.nice-ai.dev`（默认联系邮箱 `dachou5224@gmail.com`）
+
+> 说明：当前 `deploy/deploy.sh` 仍聚焦 API。React + Vite 前端先按下文 §4.5 手动构建与挂载，确认路线后再决定是否并入脚本。
 
 从 **本机** 同步代码并触发部署（开发机有最新未 push 提交时适用）：
 
@@ -109,6 +112,33 @@ sudo certbot --nginx -d simapi.nice-ai.dev --non-interactive --agree-tos -m dach
 curl -sS https://simapi.nice-ai.dev/health
 ```
 
+### 4.5 React + Vite 前端（静态托管）
+
+推荐独立子域名，例如 `app.nice-ai.dev`，并通过 **同源 `/api/*` 代理** 访问现有 Python 服务。
+
+```bash
+cd /opt/ss-biomass-pfd/frontend
+npm install --legacy-peer-deps --cache .npm-cache
+npm run build
+```
+
+生成产物：`/opt/ss-biomass-pfd/frontend/dist`
+
+Nginx 站点模板见：
+
+```bash
+sudo cp deploy/nginx-simulator-frontend.conf.example /etc/nginx/conf.d/app.nice-ai.dev.conf
+sudo nginx -t && sudo systemctl reload nginx
+sudo certbot --nginx -d app.nice-ai.dev --non-interactive --agree-tos -m dachou5224@gmail.com
+```
+
+该站点做两件事：
+
+1. 直接服务 `frontend/dist` 内的静态 HTML/CSS/JS
+2. 将浏览器的 `/api/*` 请求反代到 `127.0.0.1:8765/*`
+
+这样前端无需依赖 Vercel，也不需要浏览器跨域调用 `simapi.nice-ai.dev`。
+
 ## 5. 运维命令
 
 | 操作 | 命令 |
@@ -117,6 +147,7 @@ curl -sS https://simapi.nice-ai.dev/health
 | 重启 API | `sudo systemctl restart ss-biomass-api` |
 | 重载 Nginx | `sudo nginx -t && sudo systemctl reload nginx` |
 | 更新代码后 | `cd /opt/ss-biomass-pfd && git pull && bash deploy/deploy.sh` |
+| 构建前端 | `cd /opt/ss-biomass-pfd/frontend && npm run build` |
 | 本机同步+部署 | `./scripts/sync_vps.sh`（rsync + deploy） |
 | 资源巡检 | `bash deploy/vps_health_check.sh` |
 | 磁盘清理 | `bash deploy/vps_disk_cleanup.sh`（可加 `--aggressive`） |
@@ -137,6 +168,15 @@ curl -sS -X POST https://simapi.nice-ai.dev/v1/compute/simulate-lite \
 - JS 基线：`export/js/WebServiceDemo.js`
 - 将 `API_BASE` 改为 `https://simapi.nice-ai.dev`
 - 若启用 `SIM_API_KEY`，在请求头加入 `X-API-Key`（见 `doc/excel_api_contract.md`）
+
+## 9. React + Vite Web 前端
+
+- 前端目录：`frontend/`
+- 本地开发：`npm run dev`（Vite 默认代理 `/api/*` → `127.0.0.1:8765`）
+- 线上建议：`app.nice-ai.dev` 之类独立子域名 + Nginx 静态托管
+- 当前 MVP 使用：
+  - `POST /v1/demo/input-read` 载入模板
+  - `POST /v1/compute/simulate-full` 拉取完整求解结果
 
 ## 7. 密钥轮换
 

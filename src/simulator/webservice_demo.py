@@ -5,13 +5,22 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, Mapping
 
+import pandas as pd
+
+from .backend import run_fixed_temperature_simulation
+from .data import REFERENCE_CASES
 from .web_ui import (
     O2IN_COMPOSITION_KEYS,
     PFD_FEED_LINES,
     build_chem_df_from_inputs,
     build_feed_df_from_inputs,
     build_specs_df_from_inputs,
+    carbon_conversion_pct,
+    cold_gas_efficiency_pct,
+    comparison_wet_df,
     default_inputs,
+    h2_co_ratio_dry,
+    pfd_feed_summary_df,
 )
 
 
@@ -109,6 +118,11 @@ def _calc_checks(inputs: Mapping[str, Any]) -> LiteChecks:
     )
 
 
+def _records(df: pd.DataFrame) -> list[dict[str, Any]]:
+    cleaned = df.where(pd.notnull(df), None)
+    return cleaned.to_dict(orient="records")
+
+
 def build_input_read_response(payload: Mapping[str, Any]) -> Dict[str, Any]:
     inputs = _merge_inputs(payload)
     feed_df = build_feed_df_from_inputs(inputs)
@@ -171,6 +185,65 @@ def build_compute_response(payload: Mapping[str, Any]) -> Dict[str, Any]:
         "status": "ok" if checks.o2in_is_100_pct and checks.negative_feed_count == 0 else "check",
         "kpi_rows": kpi_rows,
         "checks": asdict(checks),
+    }
+
+
+def build_full_compute_response(payload: Mapping[str, Any]) -> Dict[str, Any]:
+    """纯计算全结果：供 Web 前端替代 Streamlit，仍不返回任何布局/单元格映射。"""
+    inputs = _merge_inputs(payload)
+    checks = _calc_checks(inputs)
+    result = run_fixed_temperature_simulation(
+        build_feed_df_from_inputs(inputs),
+        build_specs_df_from_inputs(inputs),
+        build_chem_df_from_inputs(inputs),
+    )
+
+    comparison = {"inci_wet": [], "rgpox_wet": []}
+    if result.matched_case:
+        expected = REFERENCE_CASES[result.matched_case]["expected"]
+        inci_wet = dict(expected.get("inci_comp_wet", expected["inci_comp"]))
+        inci_wet.setdefault("H2O", None)
+        pox_wet = dict(expected.get("pox_comp_wet", expected["pox_comp"]))
+        pox_wet.setdefault("H2O", None)
+        comparison = {
+            "inci_wet": _records(comparison_wet_df(inci_wet, result.inci_comp_wet_vol_pct)),
+            "rgpox_wet": _records(comparison_wet_df(pox_wet, result.pox_comp_wet_vol_pct)),
+        }
+
+    return {
+        "status": "ok" if checks.o2in_is_100_pct and checks.negative_feed_count == 0 else "check",
+        "checks": asdict(checks),
+        "input": {
+            "case_id": inputs["case_id"],
+            "system_p_bar": inputs["system_p_bar"],
+        },
+        "result_summary": {
+            "matched_case": result.matched_case,
+            "inci_top_kg_h": result.inci_top_kg_h,
+            "inci_tar_kg_h": result.inci_tar_kg_h,
+            "inci_pgi_total_kg_h": result.inci_pgi_total_kg_h,
+            "inci_slag_kg_h": result.inci_slag_kg_h,
+            "pox_gas_kg_h": result.pox_gas_kg_h,
+            "pox_ash_kg_h": result.pox_ash_kg_h,
+            "rmsd_inci_primary_pct": result.rmsd_inci_primary_pct,
+            "rmsd_pox_primary_pct": result.rmsd_pox_primary_pct,
+            "quench_t_out_c": result.quench_t_out_c,
+            "quench_h2o_added_kg_h": result.quench_h2o_added_kg_h,
+        },
+        "performance": {
+            "cold_gas_efficiency_pct": cold_gas_efficiency_pct(inputs, result),
+            "carbon_conversion_pct": carbon_conversion_pct(result),
+            "h2_co_ratio_dry": h2_co_ratio_dry(result),
+        },
+        "compositions": {
+            "inci_wet_vol_pct": result.inci_comp_wet_vol_pct,
+            "rgpox_wet_vol_pct": result.pox_comp_wet_vol_pct,
+        },
+        "comparison": comparison,
+        "tables": {
+            "feed_summary": _records(pfd_feed_summary_df(inputs)),
+            "unit_trace": [asdict(row) for row in result.unit_trace],
+        },
     }
 
 

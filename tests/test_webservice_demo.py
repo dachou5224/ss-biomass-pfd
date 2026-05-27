@@ -5,6 +5,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from simulator.webservice_demo import (
     build_compute_response,
+    build_full_compute_response,
     build_input_read_response,
     build_output_pack_response,
     build_output_pack_tsv,
@@ -72,3 +73,14 @@ def test_output_pack_tsv_has_header_and_status():
     lines = [x for x in tsv.splitlines() if x.strip()]
     assert lines[0] == "METRIC\tVALUE\tUNIT"
     assert lines[1].startswith("STATUS\t")
+
+
+def test_full_compute_response_returns_result_sections():
+    res = build_full_compute_response({"case_id": "Case-1"})
+    assert "checks" in res
+    assert "result_summary" in res
+    assert "performance" in res
+    assert "compositions" in res
+    assert "tables" in res
+    assert "feed_summary" in res["tables"]
+    assert "unit_trace" in res["tables"]

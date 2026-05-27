@@ -7,6 +7,7 @@ from typing import Any, Dict, Mapping
 from simulator.api import schemas
 from simulator.webservice_demo import (
     build_compute_response,
+    build_full_compute_response,
     build_input_read_response,
     build_output_pack_response,
     build_output_pack_tsv,
@@ -26,6 +27,9 @@ def handle_post(path: str, payload: Mapping[str, Any]) -> Dict[str, Any]:
     if path == schemas.COMPUTE_SIMULATE_LITE_ROUTE:
         return {"status_code": 200, "json": build_compute_response(payload)}
 
+    if path == schemas.COMPUTE_SIMULATE_FULL_ROUTE:
+        return {"status_code": 200, "json": build_full_compute_response(payload)}
+
     if path in (schemas.DEMO_OUTPUT_PACK_ROUTE, schemas.DEMO_SIMULATE_LITE_ROUTE):
         return {"status_code": 200, "json": build_output_pack_response(payload)}
 
@@ -33,4 +37,3 @@ def handle_post(path: str, payload: Mapping[str, Any]) -> Dict[str, Any]:
         return {"status_code": 200, "tsv": build_output_pack_tsv(payload)}
 
     return {"status_code": 404, "json": {"error": f"unknown path: {path}"}}
-
