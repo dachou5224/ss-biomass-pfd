@@ -8,8 +8,8 @@ function isAbsoluteUrl(value: string) {
 }
 
 function isLocalDevHost(hostname: string) {
-  // Include IPv6 loopback (::1) for headless browser and curl access via [::1]
-  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
+  // IPv6 loopback appears as "[::1]" (with brackets) per RFC 3986 URL spec
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '[::1]'
 }
 
 function resolveApiBaseUrl() {
