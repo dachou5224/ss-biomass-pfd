@@ -1,6 +1,6 @@
 # Status Report - ss-biomass-pfd
 
-## 当前进展（2026-05-27）
+## 当前进展（2026-05-29）
 
 ### 1) 模型里程碑
 - INCI Phase 7A：**已收口**（Case-1 湿基对标完成）。
@@ -12,7 +12,10 @@
 - 已停止「全量 VBA 迁移」；主线为 **Excel/WPS 前端 + Python API**。
 - 并行保留：**Streamlit DCS UI**（`web_ui.py` / `dcs_theme.py`）、**Gibbs Spike** Excel 工具链（非主路径）。
 - Streamlit UI 已完成一轮面向操作员流程的体验收敛：**结果总览前置为首个 Tab、顶部增加运行准备总览、自定义工况不再误报为 warning**。
-- React + Vite Web 前端迁移已启动：新增 `frontend/` MVP 骨架，并补上 `/v1/compute/simulate-full` 纯计算接口供 Web UI 调用。
+- React + Vite Web 前端 MVP **已完成 QA 通关**（2026-05-29）：
+  - `frontend/` 骨架、API 集成、Vite proxy、VPS 部署配置均已到位
+  - 关键 Bug 已修复（见下方 QA 小结）
+  - **待办**: 生产服务器需部署 `/v1/compute/simulate-full` 端点（本地 routes.py 已支持，VPS 未同步）
 
 ### 3) 生产 API（P0/P1 完成）
 | 项 | 状态 |
@@ -25,9 +28,22 @@
 
 接口（纯计算契约）：
 - `GET /health`
-- `POST /v1/compute/simulate-lite`
-- `POST /v1/compute/simulate-full`
+- `POST /v1/compute/simulate-lite` ✅ 已部署
+- `POST /v1/compute/simulate-full` ⚠️ **未部署到 VPS**（本地 routes.py 已支持，需 `scripts/sync_vps.sh` 推送）
 - Excel 适配层：`/v1/demo/*`（兼容）
+
+### 3b) React + Vite 前端 QA 小结（2026-05-29）
+
+| # | 级别 | 描述 | 状态 |
+|---|------|------|------|
+| ISSUE-001 | 🔴 Critical | IPv6 `[::1]` hostname 不被 `isLocalDevHost` 识别 → 绕过 Vite proxy → CORS 崩溃 | ✅ 已修 `0ef064d` |
+| ISSUE-002 | 🟡 Medium | 模板载入失败时 Run 按钮标签无法区分"未载入"与"载入失败" | ✅ 已修 `a5a6c84` |
+| ISSUE-003 | 🟡 Medium | 进料区初始无 empty-state 提示，白屏显示 | ✅ 已修 `a5a6c84` |
+| ISSUE-004 | 🔵 Low | Header 显示内部 API 路径，非用户信息 | ✅ 已修 `a5a6c84` |
+| ISSUE-005 | 🟠 High | 生产 VPS 缺少 `/v1/compute/simulate-full` 端点 → 点击求解报 404 | ⚠️ 待 VPS 部署 |
+
+**模板载入 OK，Case 切换 OK，O2IN 组成校验 OK，Run button 可用。**  
+唯一遗留：VPS 需 `sync_vps.sh` + 重启服务以部署 `simulate-full`。
 
 ### 4) Excel Spread Simulator 前端
 工作簿 Sheet 顺序：**Guide → Model_Input → WebService → Model_Output → PFD**
