@@ -24,6 +24,7 @@
 - [x] **联调手册**：`doc/excel_用户操作手册.md`（零基础日常操作）；安装细节见 `excel_workbook_api_上手教程.md`。
 - [x] **Streamlit UI 首轮体验优化**：结果总览前置、顶部运行准备总览、自定义工况提示去 warning 化；见 `app.py`、`web_ui.py`、`dcs_theme.py`。
 - [x] **React + Vite 前端 MVP 收口**：QA 通关（2026-05-29）；ISSUE-001~004 已修；**ISSUE-005 待办：VPS 需推送 `simulate-full` 端点**（`scripts/sync_vps.sh` + 重启 `ss-biomass-api.service`）。
+- [x] **冷煤气效率公式修复（2026-05-29）**：移除 `_dry_syngas_lhv_mj_per_kg` 中错误 `/1000.0`（CGE 8.4%→84.4%）；新增 `cold_gas_efficiency_inci_pct` / `cold_gas_efficiency_pox_pct` 分别报告 INCI 中间态（84.4%）和 RGPOX 最终态（103.7%）。VPS 同步待执行。
 
 ## 风险与注意事项
 
