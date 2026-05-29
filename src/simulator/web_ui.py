@@ -921,6 +921,7 @@ def format_results_markdown(
 
 # 干基合成气 LHV 估算（MJ/kg，用于冷煤气效率代理）
 _BIOMASS_LHV_MJ_PER_KG = 18.5
+_CHAR_LHV_MJ_PER_KG = 32.8    # 纯碳 LHV（炭黑 / 未转化炭）
 _SYNGAS_LHV_MJ_PER_KG: Dict[str, float] = {
     "H2": 120.0,    # 120 MJ/kg
     "CO": 10.1,     # 10.1 MJ/kg
@@ -1002,19 +1003,29 @@ def cold_gas_efficiency_pox_pct(
     inputs: Mapping[str, Any],
     res: SimulationResult,
 ) -> Optional[float]:
-    """POX 冷煤气效率：RGPOX 出口合成气热值 / 生物质进料热值（与 INCI 同分母，可直接比较）。
-    由于 POX 加入 O2 引发放热氧化，数值可能超过 100%，属正常现象。
+    """POX 冷煤气效率：RGPOX 出口合成气热值 / (INCI 出口气热值 + 入 POX 炭热值)。
+    分母为 INCI 输出到 RGPOX 的全部化学能（气体 + 炭），不含生物质。
     """
-    pfd = dict(inputs.get("pfd_feeds") or {})
-    bio_kg = float((pfd.get("Biomass") or {}).get("mass_kg_h", 0.0))
-    if bio_kg <= 1e-6:
+    # 分子：RGPOX 出口合成气化学能
+    lhv_pox = _dry_syngas_lhv_mj_per_kg(res.pox_comp_dry_vol_pct)
+    if lhv_pox <= 0.0:
         return None
-    lhv_gas = _dry_syngas_lhv_mj_per_kg(res.pox_comp_dry_vol_pct)
-    if lhv_gas <= 0.0:
+    energy_out = res.pox_gas_kg_h * lhv_pox
+
+    # 分母：INCI 出口气能 + 入 POX 炭能
+    lhv_inci = _dry_syngas_lhv_mj_per_kg(res.inci_comp_dry_vol_pct)
+    if lhv_inci <= 0.0:
         return None
-    energy_out = res.pox_gas_kg_h * lhv_gas
-    energy_in = bio_kg * _BIOMASS_LHV_MJ_PER_KG
-    if energy_in <= 0.0:
+    energy_inci_gas = res.inci_top_kg_h * lhv_inci
+
+    if res.inci_mass_audit is not None:
+        char_to_pox_kg_h = res.inci_mass_audit.char_to_pox_kg_h
+    else:
+        char_to_pox_kg_h = 0.0
+    energy_char = char_to_pox_kg_h * _CHAR_LHV_MJ_PER_KG
+
+    energy_in = energy_inci_gas + energy_char
+    if energy_in <= 1e-6:
         return None
     return 100.0 * energy_out / energy_in
 
