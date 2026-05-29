@@ -169,9 +169,10 @@ function isLocalDevHost(hostname: string) {
 
 **原因：** PM2 管理着名为 `my-editor` 的进程，持续占用 5173；kill 掉后会自动重启。
 
-**解决：** 改用 5174 端口：
+**解决：** 已将 `vite.config.ts` 默认端口改为 5174，直接 `npm run dev` 即可：
 ```bash
-npm run dev -- --port 5174 --host
+cd frontend && npm run dev
+# → http://localhost:5174
 ```
 
 ---

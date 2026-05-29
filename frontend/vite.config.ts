@@ -17,7 +17,7 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     server: {
       host: '0.0.0.0',
-      port: 5173,
+      port: 5174, // 5173 is occupied by PM2-managed md project on this machine
       proxy: {
         '/api': {
           target: proxyTarget,
