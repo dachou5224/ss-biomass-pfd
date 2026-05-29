@@ -8,7 +8,8 @@ function isAbsoluteUrl(value: string) {
 }
 
 function isLocalDevHost(hostname: string) {
-  return hostname === 'localhost' || hostname === '127.0.0.1'
+  // Include IPv6 loopback (::1) for headless browser and curl access via [::1]
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
 }
 
 function resolveApiBaseUrl() {
