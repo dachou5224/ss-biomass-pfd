@@ -127,6 +127,9 @@ function App() {
   }
 
   async function handleRun() {
+    if (isLoadingTemplate || isRunning || feedRows.length === 0 || negativeFeedCount > 0 || Math.abs(o2Sum - 100) > 0.5) {
+      return
+    }
     setIsRunning(true)
     setError('')
     try {
@@ -141,6 +144,16 @@ function App() {
 
   const noticeTone =
     error || negativeFeedCount > 0 ? 'danger' : Math.abs(o2Sum - 100) > 0.5 ? 'warn' : 'info'
+  const runBlockedReason = isLoadingTemplate
+    ? '正在载入模板…'
+    : feedRows.length === 0
+      ? '先载入模板默认值'
+      : negativeFeedCount > 0
+        ? '先修正负流量'
+        : Math.abs(o2Sum - 100) > 0.5
+          ? '先把 O2IN 调到约 100%'
+          : ''
+  const canRun = !isRunning && !runBlockedReason
   const noticeText = error
     ? error
     : negativeFeedCount > 0
@@ -239,8 +252,8 @@ function App() {
               <button type="button" className="button secondary" onClick={() => void loadTemplate(selectedCase)}>
                 载入模板默认值
               </button>
-              <button type="button" className="button primary" disabled={isRunning} onClick={() => void handleRun()}>
-                {isRunning ? '求解中…' : '运行求解并刷新结果'}
+              <button type="button" className="button primary" disabled={!canRun} onClick={() => void handleRun()}>
+                {isRunning ? '求解中…' : runBlockedReason || '运行求解并刷新结果'}
               </button>
             </div>
           </section>
