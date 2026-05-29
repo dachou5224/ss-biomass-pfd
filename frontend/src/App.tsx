@@ -196,9 +196,13 @@ function App() {
           <span className="meta">负流量 {negativeFeedCount} 条</span>
         </article>
         <article className="overview-card">
-          <span className="label">冷煤气效率</span>
+          <span className="label">冷煤气效率 (总)</span>
           <strong>{formatNumber(result?.performance.cold_gas_efficiency_pct, 1)} %</strong>
-          <span className="meta">来自纯计算接口</span>
+          <span className="meta">
+            INCI {formatNumber(result?.performance.cold_gas_efficiency_inci_pct, 1) ?? '—'} %
+            &nbsp;|&nbsp;
+            POX {formatNumber(result?.performance.cold_gas_efficiency_pox_pct, 1) ?? '—'} %
+          </span>
         </article>
         <article className="overview-card">
           <span className="label">对标工况</span>

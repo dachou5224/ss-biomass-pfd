@@ -16,6 +16,8 @@ from .web_ui import (
     build_feed_df_from_inputs,
     build_specs_df_from_inputs,
     carbon_conversion_pct,
+    cold_gas_efficiency_inci_pct,
+    cold_gas_efficiency_pox_pct,
     cold_gas_efficiency_pct,
     comparison_wet_df,
     default_inputs,
@@ -232,6 +234,8 @@ def build_full_compute_response(payload: Mapping[str, Any]) -> Dict[str, Any]:
         },
         "performance": {
             "cold_gas_efficiency_pct": cold_gas_efficiency_pct(inputs, result),
+            "cold_gas_efficiency_inci_pct": cold_gas_efficiency_inci_pct(inputs, result),
+            "cold_gas_efficiency_pox_pct": cold_gas_efficiency_pox_pct(inputs, result),
             "carbon_conversion_pct": carbon_conversion_pct(result),
             "h2_co_ratio_dry": h2_co_ratio_dry(result),
         },

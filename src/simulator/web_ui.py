@@ -921,10 +921,10 @@ def format_results_markdown(
 
 # 干基合成气 LHV 估算（MJ/kg，用于冷煤气效率代理）
 _BIOMASS_LHV_MJ_PER_KG = 18.5
-_SYNGAS_LHV_KJ_PER_KG: Dict[str, float] = {
-    "H2": 120.0,
-    "CO": 10.1,
-    "CH4": 50.2,
+_SYNGAS_LHV_MJ_PER_KG: Dict[str, float] = {
+    "H2": 120.0,    # 120 MJ/kg
+    "CO": 10.1,     # 10.1 MJ/kg
+    "CH4": 50.2,    # 50.2 MJ/kg
     "CO2": 0.0,
     "N2": 0.0,
     "Ar": 0.0,
@@ -949,10 +949,10 @@ def _dry_syngas_lhv_mj_per_kg(comp: Mapping[str, float]) -> float:
             continue
         w = y * mw
         mass_denom += w
-        mass_weighted_lhv += w * _SYNGAS_LHV_KJ_PER_KG.get(sp, 0.0)
+        mass_weighted_lhv += w * _SYNGAS_LHV_MJ_PER_KG.get(sp, 0.0)
     if mass_denom <= 0.0:
         return 0.0
-    return mass_weighted_lhv / mass_denom / 1000.0
+    return mass_weighted_lhv / mass_denom  # already MJ/kg
 
 
 def carbon_conversion_pct(res: SimulationResult) -> Optional[float]:
@@ -977,11 +977,13 @@ def h2_co_ratio_dry(res: SimulationResult) -> Optional[float]:
     return float(comp.get("H2", 0.0)) / co
 
 
-def cold_gas_efficiency_pct(
+def cold_gas_efficiency_inci_pct(
     inputs: Mapping[str, Any],
     res: SimulationResult,
 ) -> Optional[float]:
-    """冷煤气效率代理：合成气热值 / 生物质进料热值（基于干基组成与流量）。"""
+    """INCI 冷煤气效率：INCI 出口合成气热值 / 生物质进料热值。
+    分母为生物质进料 LHV；INCI 级可期待 60-90%。
+    """
     pfd = dict(inputs.get("pfd_feeds") or {})
     bio_kg = float((pfd.get("Biomass") or {}).get("mass_kg_h", 0.0))
     if bio_kg <= 1e-6:
@@ -993,7 +995,38 @@ def cold_gas_efficiency_pct(
     energy_in = bio_kg * _BIOMASS_LHV_MJ_PER_KG
     if energy_in <= 0.0:
         return None
-    return min(100.0, 100.0 * energy_out / energy_in)
+    return 100.0 * energy_out / energy_in
+
+
+def cold_gas_efficiency_pox_pct(
+    inputs: Mapping[str, Any],
+    res: SimulationResult,
+) -> Optional[float]:
+    """POX 冷煤气效率：RGPOX 出口合成气热值 / 生物质进料热值（与 INCI 同分母，可直接比较）。
+    由于 POX 加入 O2 引发放热氧化，数值可能超过 100%，属正常现象。
+    """
+    pfd = dict(inputs.get("pfd_feeds") or {})
+    bio_kg = float((pfd.get("Biomass") or {}).get("mass_kg_h", 0.0))
+    if bio_kg <= 1e-6:
+        return None
+    lhv_gas = _dry_syngas_lhv_mj_per_kg(res.pox_comp_dry_vol_pct)
+    if lhv_gas <= 0.0:
+        return None
+    energy_out = res.pox_gas_kg_h * lhv_gas
+    energy_in = bio_kg * _BIOMASS_LHV_MJ_PER_KG
+    if energy_in <= 0.0:
+        return None
+    return 100.0 * energy_out / energy_in
+
+
+def cold_gas_efficiency_pct(
+    inputs: Mapping[str, Any],
+    res: SimulationResult,
+) -> Optional[float]:
+    """综合冷煤气效率：以 RGPOX 最终出口合成气热值 / 生物质进料热值为准。
+    INCI 与 RGPOX 串联：INCI 气体进入 RGPOX 继续转化，最终产品为 RGPOX 出口气。
+    """
+    return cold_gas_efficiency_pox_pct(inputs, res)
 
 
 def _fmt_metric(value: Optional[float], *, digits: int = 1, suffix: str = "") -> str:

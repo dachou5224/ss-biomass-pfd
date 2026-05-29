@@ -75,6 +75,8 @@ export type FullComputeResponse = {
   }
   performance: {
     cold_gas_efficiency_pct: number | null
+    cold_gas_efficiency_inci_pct: number | null
+    cold_gas_efficiency_pox_pct: number | null
     carbon_conversion_pct: number | null
     h2_co_ratio_dry: number | null
   }
