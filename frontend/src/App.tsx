@@ -147,7 +147,7 @@ function App() {
   const runBlockedReason = isLoadingTemplate
     ? '正在载入模板…'
     : feedRows.length === 0
-      ? '先载入模板默认值'
+      ? error ? '模板载入失败，请重试' : '先载入模板默认值'
       : negativeFeedCount > 0
         ? '先修正负流量'
         : Math.abs(o2Sum - 100) > 0.5
@@ -178,7 +178,6 @@ function App() {
         </div>
         <div className="topbar-badges">
           <span className="badge">Case {selectedCase}</span>
-          <span className="badge">API /v1/compute/simulate-full</span>
           <span className={`badge ${result ? 'badge-ok' : 'badge-info'}`}>
             {result ? '已求解' : isLoadingTemplate ? '模板载入中' : '待求解'}
           </span>
@@ -265,7 +264,9 @@ function App() {
                 <p>{group.subtitle}</p>
               </div>
               <div className="feed-stack">
-                {group.rows.map((row) => (
+                {group.rows.length === 0 ? (
+                  <p className="empty-state">请先点击「载入模板默认值」</p>
+                ) : group.rows.map((row) => (
                   <div key={row.Stream} className="feed-card">
                     <div className="feed-card-head">
                       <strong>{row.Stream}</strong>

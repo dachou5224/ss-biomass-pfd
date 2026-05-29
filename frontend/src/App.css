@@ -195,6 +195,14 @@
   gap: 12px;
 }
 
+.empty-state {
+  font-size: 0.85rem;
+  color: var(--muted);
+  text-align: center;
+  padding: 16px 0;
+  opacity: 0.7;
+}
+
 .feed-card {
   padding: 12px;
   border-radius: 14px;
