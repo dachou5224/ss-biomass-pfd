@@ -32,7 +32,7 @@
 - `POST /v1/compute/simulate-full` ✅ 已部署
 - Excel 适配层：`/v1/demo/*`（兼容）
 
-### 3b) React + Vite 前端 QA 小结（2026-05-29）
+### 3b) React + Vite 前端 QA 小结（2026-05-30）
 
 | # | 级别 | 描述 | 状态 |
 |---|------|------|------|
@@ -41,8 +41,13 @@
 | ISSUE-003 | 🟡 Medium | 进料区初始无 empty-state 提示，白屏显示 | ✅ 已修 `a5a6c84` |
 | ISSUE-004 | 🔵 Low | Header 显示内部 API 路径，非用户信息 | ✅ 已修 `a5a6c84` |
 | ISSUE-005 | 🟠 High | 生产 VPS 缺少 `/v1/compute/simulate-full` 端点 → 点击求解报 404 | ✅ 已修并部署 |
+| ISSUE-006 | 🟠 High | 本地 Vite `/api` 代理错误跟随 `VITE_API_BASE_URL`，导致 5174 联调实际打到远端旧 API | ✅ 已修 `74d4fd0` |
+| ISSUE-007 | 🟠 High | `Case-2` 的 `simulate-full` 比较表返回 `NaN`，前端 `response.json()` 解析失败 | ✅ 已修 `f6010a5` |
 
-**模板载入 OK，Case 切换 OK，O2IN 组成校验 OK，Run button 可用；结果区现可按 INCI / POX 对照 PFD 流股查看干湿基组成。**
+**完整回归已覆盖：**
+- 后端：`pytest -q tests/test_webservice_demo.py tests/test_api_app.py` → **9 passed**
+- 前端：`npm run build` 通过
+- 浏览器：本地 5174 + 8765 联调下，**Case-1、Case-2、移动端窄屏** 均已手测通过；结果区可按 INCI / POX 对照 PFD 流股查看干湿基组成。
 
 ### 4) Excel Spread Simulator 前端
 工作簿 Sheet 顺序：**Guide → Model_Input → WebService → Model_Output → PFD**

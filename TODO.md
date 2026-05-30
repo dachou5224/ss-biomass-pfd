@@ -26,6 +26,7 @@
 - [x] **React + Vite 前端 MVP 收口**：QA 通关（2026-05-29）；ISSUE-001~005 已修，VPS 已部署 `simulate-full`。
 - [x] **冷煤气效率公式修复（2026-05-29）**：移除 `_dry_syngas_lhv_mj_per_kg` 中错误 `/1000.0`；并修正 CGE 基准混用问题，统一改为 **全干基组成 × 干气质量**，避免把 quench 水和湿气总质量误计入化学能。阶段 CGE 分母已统一为**设备入口总化学能**：INCI 按 INCI 边界入口，POX 按 INCI 出口干气 + tar + 入 POX 炭 + RGPOX 直接进料；其中 tar 按经验式估算 LHV 并计入。默认工况现为：INCI≈70.3%，POX 段≈95.2%，总 CGE≈68.5%。VPS 已同步生效。
 - [x] **结果区流程对照增强（2026-05-30）**：full API `compositions` 已补齐 `INCI/POX` 结构化 dry/wet 数据；前端结果区已拆成两块，分别展示 `13PGI-1`、`15PGR-1`、`15PGR-2` 对应组成，并嵌入 `frontend/public/core-topology.png` 供用户对照 PFD 物流编号。
+- [x] **完整前后端回归（2026-05-30）**：`pytest -q` 聚焦 API 用例、`frontend npm run build`、本地浏览器回归（Case-1、Case-2、移动端）均已完成；本轮额外修复两项 QA 问题：1) 本地 Vite 代理误跟随 `VITE_API_BASE_URL` 指向远端，导致 5174 联调测错后端；2) Case-2 `simulate-full` 比较表含 `NaN`，会打炸前端 JSON 解析。对应提交：`74d4fd0`、`f6010a5`。
 
 ## 风险与注意事项
 
