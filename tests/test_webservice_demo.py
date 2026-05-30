@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -84,3 +85,16 @@ def test_full_compute_response_returns_result_sections():
     assert "tables" in res
     assert "feed_summary" in res["tables"]
     assert "unit_trace" in res["tables"]
+
+
+def test_full_compute_response_case2_is_json_safe():
+    # Regression: ISSUE-007 — Case-2 comparison rows emitted NaN and broke frontend JSON parsing
+    # Found by /qa on 2026-05-30
+    # Report: .gstack/qa-reports/qa-report-local-frontend-2026-05-30.md
+    res = build_full_compute_response({"case_id": "Case-2"})
+    encoded = json.dumps(res, allow_nan=False)
+    decoded = json.loads(encoded)
+
+    assert decoded["input"]["case_id"] == "Case-2"
+    assert "inci" in decoded["compositions"]
+    assert all(row["DBI"] is None or isinstance(row["DBI"], (int, float)) for row in decoded["comparison"]["rgpox_wet"])

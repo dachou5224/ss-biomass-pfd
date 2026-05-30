@@ -121,8 +121,18 @@ def _calc_checks(inputs: Mapping[str, Any]) -> LiteChecks:
 
 
 def _records(df: pd.DataFrame) -> list[dict[str, Any]]:
-    cleaned = df.where(pd.notnull(df), None)
-    return cleaned.to_dict(orient="records")
+    return _json_safe(df.to_dict(orient="records"))
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _json_safe(val) for key, val in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    is_na = pd.isna(value)
+    if isinstance(is_na, bool) and is_na:
+        return None
+    return value
 
 
 def build_input_read_response(payload: Mapping[str, Any]) -> Dict[str, Any]:
@@ -212,7 +222,7 @@ def build_full_compute_response(payload: Mapping[str, Any]) -> Dict[str, Any]:
             "rgpox_wet": _records(comparison_wet_df(pox_wet, result.pox_comp_wet_vol_pct)),
         }
 
-    return {
+    return _json_safe({
         "status": "ok" if checks.o2in_is_100_pct and checks.negative_feed_count == 0 else "check",
         "checks": asdict(checks),
         "input": {
@@ -264,7 +274,7 @@ def build_full_compute_response(payload: Mapping[str, Any]) -> Dict[str, Any]:
             "feed_summary": _records(pfd_feed_summary_df(inputs)),
             "unit_trace": [asdict(row) for row in result.unit_trace],
         },
-    }
+    })
 
 
 def build_output_pack_tsv(payload: Mapping[str, Any]) -> str:
