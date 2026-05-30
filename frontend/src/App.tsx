@@ -10,6 +10,7 @@ import type {
 import './App.css'
 
 const CASE_OPTIONS = ['Case-1', 'Case-2', 'Case-3']
+const COMPOSITION_ORDER = ['H2', 'CO', 'CO2', 'CH4', 'H2O', 'N2', 'Ar', 'H2S', 'NH3', 'COS']
 
 const FEED_GROUPS = [
   {
@@ -32,6 +33,19 @@ const FEED_GROUPS = [
 function formatNumber(value: number | null | undefined, digits = 1) {
   if (value === null || value === undefined || Number.isNaN(value)) return '—'
   return value.toFixed(digits)
+}
+
+function sortCompositionEntries(composition: Record<string, number> | undefined) {
+  return Object.entries(composition ?? {})
+    .filter(([, value]) => Math.abs(Number(value)) > 1e-6)
+    .sort(([left], [right]) => {
+      const leftIndex = COMPOSITION_ORDER.indexOf(left)
+      const rightIndex = COMPOSITION_ORDER.indexOf(right)
+      if (leftIndex === -1 && rightIndex === -1) return left.localeCompare(right)
+      if (leftIndex === -1) return 1
+      if (rightIndex === -1) return -1
+      return leftIndex - rightIndex
+    })
 }
 
 function App() {
@@ -125,6 +139,59 @@ function App() {
     o2in_composition: o2inComposition,
     chemistry: Object.fromEntries(chemistryRows.map((row) => [row.Field, row.Value])),
   }
+
+  const equipmentSections = result
+    ? [
+        {
+          key: 'inci',
+          title: result.compositions.inci.title,
+          equipmentId: result.compositions.inci.equipment_id,
+          description: 'INCI 出口气组成，干/湿基共用同一主产物流。',
+          dryStreamId: result.compositions.inci.dry_stream_id,
+          wetStreamId: result.compositions.inci.wet_stream_id,
+          dryVolPct: result.compositions.inci.dry_vol_pct,
+          wetVolPct: result.compositions.inci.wet_vol_pct,
+          metrics: [
+            {
+              label: '13PGI-1 气体',
+              value: `${formatNumber(result.result_summary.inci_top_kg_h, 0)} kg/h`,
+            },
+            {
+              label: 'Tar',
+              value: `${formatNumber(result.result_summary.inci_tar_kg_h, 1)} kg/h`,
+            },
+            {
+              label: 'INCI 渣',
+              value: `${formatNumber(result.result_summary.inci_slag_kg_h, 0)} kg/h`,
+            },
+          ],
+        },
+        {
+          key: 'pox',
+          title: result.compositions.pox.title,
+          equipmentId: result.compositions.pox.equipment_id,
+          description: 'POX 段显示反应器出口干基气体与急冷后湿基气体，便于对应 15PGR-1 / 15PGR-2。',
+          dryStreamId: result.compositions.pox.dry_stream_id,
+          wetStreamId: result.compositions.pox.wet_stream_id,
+          dryVolPct: result.compositions.pox.dry_vol_pct,
+          wetVolPct: result.compositions.pox.wet_vol_pct,
+          metrics: [
+            {
+              label: '15PGR-2 气体',
+              value: `${formatNumber(result.result_summary.pox_gas_kg_h, 0)} kg/h`,
+            },
+            {
+              label: 'POX 灰渣',
+              value: `${formatNumber(result.result_summary.pox_ash_kg_h, 0)} kg/h`,
+            },
+            {
+              label: 'Quench 出口温度',
+              value: `${formatNumber(result.result_summary.quench_t_out_c, 1)} °C`,
+            },
+          ],
+        },
+      ]
+    : []
 
   async function handleRun() {
     if (isLoadingTemplate || isRunning || feedRows.length === 0 || negativeFeedCount > 0 || Math.abs(o2Sum - 100) > 0.5) {
@@ -376,25 +443,9 @@ function App() {
           <section className="section-card">
             <div className="section-head">
               <h3>关键指标</h3>
-              <p>首屏先看产气、Tar、渣和急冷段结果。</p>
+              <p>先看系统级指标，再往下对照 INCI / POX 分块和流程图。</p>
             </div>
             <div className="results-grid">
-              <article className="metric-card">
-                <span>13PGI-1 气体</span>
-                <strong>{formatNumber(result?.result_summary.inci_top_kg_h, 0)} kg/h</strong>
-              </article>
-              <article className="metric-card">
-                <span>Tar</span>
-                <strong>{formatNumber(result?.result_summary.inci_tar_kg_h, 1)} kg/h</strong>
-              </article>
-              <article className="metric-card">
-                <span>INCI 渣</span>
-                <strong>{formatNumber(result?.result_summary.inci_slag_kg_h, 0)} kg/h</strong>
-              </article>
-              <article className="metric-card">
-                <span>RGPOX 气体</span>
-                <strong>{formatNumber(result?.result_summary.pox_gas_kg_h, 0)} kg/h</strong>
-              </article>
               <article className="metric-card">
                 <span>碳转化率</span>
                 <strong>{formatNumber(result?.performance.carbon_conversion_pct, 1)} %</strong>
@@ -403,56 +454,106 @@ function App() {
                 <span>H2/CO</span>
                 <strong>{formatNumber(result?.performance.h2_co_ratio_dry, 2)}</strong>
               </article>
+              <article className="metric-card">
+                <span>总冷煤气效率</span>
+                <strong>{formatNumber(result?.performance.cold_gas_efficiency_pct, 1)} %</strong>
+              </article>
+              <article className="metric-card">
+                <span>INCI 冷煤气效率</span>
+                <strong>{formatNumber(result?.performance.cold_gas_efficiency_inci_pct, 1)} %</strong>
+              </article>
+              <article className="metric-card">
+                <span>POX 冷煤气效率</span>
+                <strong>{formatNumber(result?.performance.cold_gas_efficiency_pox_pct, 1)} %</strong>
+              </article>
+              <article className="metric-card">
+                <span>匹配工况</span>
+                <strong>{result?.result_summary.matched_case ?? '自定义 / 未匹配'}</strong>
+              </article>
             </div>
           </section>
 
-          <section className="table-grid">
-            <div className="section-card">
-              <div className="section-head">
-                <h3>INCI 湿基 vol%</h3>
-                <p>主产气组成</p>
-              </div>
-              <table>
-                <thead>
-                  <tr>
-                    <th>组分</th>
-                    <th>vol%</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {Object.entries(result?.compositions.inci_wet_vol_pct ?? {}).map(([key, value]) => (
-                    <tr key={key}>
-                      <td>{key}</td>
-                      <td>{formatNumber(Number(value), 3)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <section className="section-card">
+            <div className="section-head">
+              <h3>PFD 流程简图</h3>
+              <p>先看物流编号，再对照下方 INCI / POX 组成表。</p>
             </div>
-
-            <div className="section-card">
-              <div className="section-head">
-                <h3>RGPOX 湿基 vol%</h3>
-                <p>急冷出口主组成</p>
-              </div>
-              <table>
-                <thead>
-                  <tr>
-                    <th>组分</th>
-                    <th>vol%</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {Object.entries(result?.compositions.rgpox_wet_vol_pct ?? {}).map(([key, value]) => (
-                    <tr key={key}>
-                      <td>{key}</td>
-                      <td>{formatNumber(Number(value), 3)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="process-diagram-frame">
+              <img
+                className="process-diagram"
+                src="/core-topology.png"
+                alt="SS Biomass PFD 简图，标出 INCI、RGPOX、Quench 及 13PGI-1、15PGR-1、15PGR-2 等物流编号"
+              />
             </div>
           </section>
+
+          {equipmentSections.map((section) => (
+            <section key={section.key} className="section-card equipment-card">
+              <div className="section-head">
+                <h3>
+                  {section.title} · {section.equipmentId}
+                </h3>
+                <p>{section.description}</p>
+              </div>
+
+              <div className="results-grid">
+                {section.metrics.map((metric) => (
+                  <article key={metric.label} className="metric-card">
+                    <span>{metric.label}</span>
+                    <strong>{metric.value}</strong>
+                  </article>
+                ))}
+              </div>
+
+              <div className="table-grid equipment-composition-grid">
+                <div>
+                  <div className="composition-head">
+                    <h4>{section.dryStreamId} 干基 vol%</h4>
+                    <p>对应 PFD 物流编号</p>
+                  </div>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>组分</th>
+                        <th>vol%</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortCompositionEntries(section.dryVolPct).map(([key, value]) => (
+                        <tr key={`${section.key}-dry-${key}`}>
+                          <td>{key}</td>
+                          <td>{formatNumber(Number(value), 3)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div>
+                  <div className="composition-head">
+                    <h4>{section.wetStreamId} 湿基 vol%</h4>
+                    <p>对应 PFD 物流编号</p>
+                  </div>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>组分</th>
+                        <th>vol%</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortCompositionEntries(section.wetVolPct).map(([key, value]) => (
+                        <tr key={`${section.key}-wet-${key}`}>
+                          <td>{key}</td>
+                          <td>{formatNumber(Number(value), 3)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+          ))}
 
           <section className="table-grid">
             <div className="section-card">

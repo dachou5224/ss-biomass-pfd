@@ -83,6 +83,22 @@ export type FullComputeResponse = {
   compositions: {
     inci_wet_vol_pct: Record<string, number>
     rgpox_wet_vol_pct: Record<string, number>
+    inci: {
+      title: string
+      equipment_id: string
+      dry_stream_id: string
+      wet_stream_id: string
+      dry_vol_pct: Record<string, number>
+      wet_vol_pct: Record<string, number>
+    }
+    pox: {
+      title: string
+      equipment_id: string
+      dry_stream_id: string
+      wet_stream_id: string
+      dry_vol_pct: Record<string, number>
+      wet_vol_pct: Record<string, number>
+    }
   }
   comparison: {
     inci_wet: Array<Record<string, string | number | null>>

@@ -20,3 +20,4 @@ doc/core_streams.md
 doc/core_topology.svg
 doc/algorithm-overview.md
 doc/python-to-vba-mapping.md
+.gstack/

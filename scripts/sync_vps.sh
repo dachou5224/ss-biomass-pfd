@@ -9,6 +9,7 @@ cd "$ROOT"
 echo "==> rsync 到 ${HOST}:${REMOTE}"
 rsync -avz --delete \
   --exclude '.git' --exclude '.venv' --exclude '__pycache__' --exclude '.pytest_cache' \
+  --exclude '.gstack' --exclude '.streamlit' --exclude 'frontend/node_modules' \
   --exclude 'doc/*DBI*.pdf' \
   --exclude 'export/*.xlsx' --exclude 'export/*.xlsm' \
   ./ "${HOST}:${REMOTE}/"

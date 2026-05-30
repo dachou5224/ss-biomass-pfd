@@ -23,8 +23,9 @@
 - [x] **命名区域健壮性**：`validateWorkbookTemplate()` / 联调前检查；缺失时写运行日志「TEMPLATE/修复」与健康灯；见 `workbook_template.py`。
 - [x] **联调手册**：`doc/excel_用户操作手册.md`（零基础日常操作）；安装细节见 `excel_workbook_api_上手教程.md`。
 - [x] **Streamlit UI 首轮体验优化**：结果总览前置、顶部运行准备总览、自定义工况提示去 warning 化；见 `app.py`、`web_ui.py`、`dcs_theme.py`。
-- [x] **React + Vite 前端 MVP 收口**：QA 通关（2026-05-29）；ISSUE-001~004 已修；**ISSUE-005 待办：VPS 需推送 `simulate-full` 端点**（`scripts/sync_vps.sh` + 重启 `ss-biomass-api.service`）。
-- [x] **冷煤气效率公式修复（2026-05-29）**：移除 `_dry_syngas_lhv_mj_per_kg` 中错误 `/1000.0`（CGE 8.4%→84.4%）；新增 `cold_gas_efficiency_inci_pct` / `cold_gas_efficiency_pox_pct` 分别报告 INCI 中间态与 RGPOX 最终态。分母已按物理定义修正：INCI=生物质能，POX=INCI出口气能+入POX炭能（`_CHAR_LHV_MJ_PER_KG=32.8 MJ/kg`）。默认工况：INCI=84.4%，POX=121.6%（O2驱动重整后化学能净增，物理合理）。VPS 同步待执行。
+- [x] **React + Vite 前端 MVP 收口**：QA 通关（2026-05-29）；ISSUE-001~005 已修，VPS 已部署 `simulate-full`。
+- [x] **冷煤气效率公式修复（2026-05-29）**：移除 `_dry_syngas_lhv_mj_per_kg` 中错误 `/1000.0`；并修正 CGE 基准混用问题，统一改为 **全干基组成 × 干气质量**，避免把 quench 水和湿气总质量误计入化学能。阶段 CGE 分母已统一为**设备入口总化学能**：INCI 按 INCI 边界入口，POX 按 INCI 出口干气 + tar + 入 POX 炭 + RGPOX 直接进料；其中 tar 按经验式估算 LHV 并计入。默认工况现为：INCI≈70.3%，POX 段≈95.2%，总 CGE≈68.5%。VPS 已同步生效。
+- [x] **结果区流程对照增强（2026-05-30）**：full API `compositions` 已补齐 `INCI/POX` 结构化 dry/wet 数据；前端结果区已拆成两块，分别展示 `13PGI-1`、`15PGR-1`、`15PGR-2` 对应组成，并嵌入 `frontend/public/core-topology.png` 供用户对照 PFD 物流编号。
 
 ## 风险与注意事项
 

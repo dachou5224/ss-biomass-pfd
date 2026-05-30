@@ -65,8 +65,15 @@ cp "${ROOT}/deploy/systemd/ss-biomass-api.service" "/etc/systemd/system/${SERVIC
 systemctl daemon-reload
 systemctl enable "${SERVICE_NAME}"
 systemctl restart "${SERVICE_NAME}"
-sleep 1
-if ! curl -sf "http://127.0.0.1:8765/health" >/dev/null; then
+HEALTH_OK=0
+for _ in $(seq 1 20); do
+  if curl -sf "http://127.0.0.1:8765/health" >/dev/null; then
+    HEALTH_OK=1
+    break
+  fi
+  sleep 1
+done
+if [[ "${HEALTH_OK}" -ne 1 ]]; then
   echo "错误: 本地 health 检查失败" >&2
   journalctl -u "${SERVICE_NAME}" -n 30 --no-pager || true
   exit 1

@@ -820,10 +820,12 @@ def run_fixed_temperature_simulation(
 
     pox_dry_all = _dry_vol_pct(pox_outlet_flow_ante, list(INCI_DRY_SPECIES))
     pox_vol = {k: pox_dry_all[k] for k in INCI_MAJOR_KEYS}
+    pox_dry_full = dict(pox_dry_all)
     pox_wet_ante_all = _wet_vol_pct(pox_outlet_flow_ante, list(INCI_WET_SPECIES))
     pox_wet_ante_vol = {k: pox_wet_ante_all[k] for k in list(INCI_MAJOR_KEYS) + ["H2O"]}
     pox_wet_all = _wet_vol_pct(pox_outlet_flow, list(INCI_WET_SPECIES))
     pox_wet_vol = {k: pox_wet_all[k] for k in list(INCI_MAJOR_KEYS) + ["H2O"]}
+    pox_wet_full = dict(pox_wet_all)
     pox_minor_vol = {k: pox_dry_all[k] for k in MINOR_SPECIES}
 
     inci_gas_mass_kg_h = species_flow_mass_kg_h(inci_outlet_flow)
@@ -1006,7 +1008,9 @@ def run_fixed_temperature_simulation(
         quench_t_out_c=round(quench_result.t_out_c, 2),
         quench_h2o_added_kg_h=round(quench_result.h2o_added_kg_h, int(_NUM["mass_round_digits"])),
         inci_comp_dry_full_vol_pct=inci_dry_full,
+        pox_comp_dry_full_vol_pct=pox_dry_full,
         inci_comp_wet_full_vol_pct=inci_wet_full,
+        pox_comp_wet_full_vol_pct=pox_wet_full,
         inci_minor_vol_pct=inci_minor_vol,
         inci_inert_dry_vol_pct=inci_inert_vol,
         pox_minor_vol_pct=pox_minor_vol,

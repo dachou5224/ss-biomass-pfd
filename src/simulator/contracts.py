@@ -122,7 +122,9 @@ class SimulationResult:
     quench_t_out_c: float | None
     quench_h2o_added_kg_h: float | None
     inci_comp_dry_full_vol_pct: Dict[str, float]
+    pox_comp_dry_full_vol_pct: Dict[str, float]
     inci_comp_wet_full_vol_pct: Dict[str, float]
+    pox_comp_wet_full_vol_pct: Dict[str, float]
     inci_minor_vol_pct: Dict[str, float]
     inci_inert_dry_vol_pct: Dict[str, float]
     pox_minor_vol_pct: Dict[str, float]

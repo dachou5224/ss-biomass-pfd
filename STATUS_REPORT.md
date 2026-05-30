@@ -12,10 +12,10 @@
 - 已停止「全量 VBA 迁移」；主线为 **Excel/WPS 前端 + Python API**。
 - 并行保留：**Streamlit DCS UI**（`web_ui.py` / `dcs_theme.py`）、**Gibbs Spike** Excel 工具链（非主路径）。
 - Streamlit UI 已完成一轮面向操作员流程的体验收敛：**结果总览前置为首个 Tab、顶部增加运行准备总览、自定义工况不再误报为 warning**。
-- React + Vite Web 前端 MVP **已完成 QA 通关**（2026-05-29）：
+- React + Vite Web 前端 MVP **已完成 QA 通关并上线 full 结果页**（2026-05-30）：
   - `frontend/` 骨架、API 集成、Vite proxy、VPS 部署配置均已到位
   - 关键 Bug 已修复（见下方 QA 小结）
-  - **待办**: 生产服务器需部署 `/v1/compute/simulate-full` 端点（本地 routes.py 已支持，VPS 未同步）
+  - 结果区已按 **INCI / POX** 拆块展示 dry/wet 组成、PFD 物流编号，并嵌入 `core-topology.png`
 
 ### 3) 生产 API（P0/P1 完成）
 | 项 | 状态 |
@@ -29,7 +29,7 @@
 接口（纯计算契约）：
 - `GET /health`
 - `POST /v1/compute/simulate-lite` ✅ 已部署
-- `POST /v1/compute/simulate-full` ⚠️ **未部署到 VPS**（本地 routes.py 已支持，需 `scripts/sync_vps.sh` 推送）
+- `POST /v1/compute/simulate-full` ✅ 已部署
 - Excel 适配层：`/v1/demo/*`（兼容）
 
 ### 3b) React + Vite 前端 QA 小结（2026-05-29）
@@ -40,10 +40,9 @@
 | ISSUE-002 | 🟡 Medium | 模板载入失败时 Run 按钮标签无法区分"未载入"与"载入失败" | ✅ 已修 `a5a6c84` |
 | ISSUE-003 | 🟡 Medium | 进料区初始无 empty-state 提示，白屏显示 | ✅ 已修 `a5a6c84` |
 | ISSUE-004 | 🔵 Low | Header 显示内部 API 路径，非用户信息 | ✅ 已修 `a5a6c84` |
-| ISSUE-005 | 🟠 High | 生产 VPS 缺少 `/v1/compute/simulate-full` 端点 → 点击求解报 404 | ⚠️ 待 VPS 部署 |
+| ISSUE-005 | 🟠 High | 生产 VPS 缺少 `/v1/compute/simulate-full` 端点 → 点击求解报 404 | ✅ 已修并部署 |
 
-**模板载入 OK，Case 切换 OK，O2IN 组成校验 OK，Run button 可用。**  
-唯一遗留：VPS 需 `sync_vps.sh` + 重启服务以部署 `simulate-full`。
+**模板载入 OK，Case 切换 OK，O2IN 组成校验 OK，Run button 可用；结果区现可按 INCI / POX 对照 PFD 流股查看干湿基组成。**
 
 ### 4) Excel Spread Simulator 前端
 工作簿 Sheet 顺序：**Guide → Model_Input → WebService → Model_Output → PFD**
@@ -128,4 +127,4 @@ curl -sS https://simapi.nice-ai.dev/health
 
 ## 待办（摘要）
 
-见 `TODO.md`：P0/P1/P2 大部分已完成；当前新增 **React + Vite 前端 MVP 收口 / VPS 静态托管落地**。
+见 `TODO.md`：P0/P1/P2 大部分已完成；当前新增 **结果区流程对照增强 / INCI-POX 分块展示**。

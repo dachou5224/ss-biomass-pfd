@@ -13,7 +13,8 @@ from .contracts import SimulationResult
 
 from .data import REFERENCE_CASES, build_chem_df, build_feed_df, build_specs_df
 from .elemental import BIOMASS_ANALYSIS_CHEM_KEYS, BIOMASS_SAMPLES
-from .parameters import DEFAULT_CHEMISTRY_SETUP, DEFAULT_REACTOR_SPECS
+from .parameters import ATOMIC_WEIGHT, DEFAULT_CHEMISTRY_SETUP, DEFAULT_REACTOR_SPECS, MOLECULAR_WEIGHT
+from .rgpox import empirical_formula_mw, parse_empirical_formula
 from .pfd_diagram import FEED_TO_PFD, PFD_WORKBOOK_IMAGE
 
 WET_MAIN_SPECIES: Tuple[str, ...] = ("H2", "CO", "CO2", "CH4", "H2O")
@@ -922,6 +923,10 @@ def format_results_markdown(
 # 干基合成气 LHV 估算（MJ/kg，用于冷煤气效率代理）
 _BIOMASS_LHV_MJ_PER_KG = 18.5
 _CHAR_LHV_MJ_PER_KG = 32.8    # 纯碳 LHV（炭黑 / 未转化炭）
+_DULONG_C_COEFF = 0.338
+_DULONG_H_COEFF = 1.428
+_DULONG_S_COEFF = 0.095
+_WATER_LATENT_HEAT_MJ_PER_KG = 2.442
 _SYNGAS_LHV_MJ_PER_KG: Dict[str, float] = {
     "H2": 120.0,    # 120 MJ/kg
     "CO": 10.1,     # 10.1 MJ/kg
@@ -930,22 +935,15 @@ _SYNGAS_LHV_MJ_PER_KG: Dict[str, float] = {
     "N2": 0.0,
     "Ar": 0.0,
 }
-_SYNGAS_MW: Dict[str, float] = {
-    "H2": 2.016,
-    "CO": 28.01,
-    "CH4": 16.04,
-    "CO2": 44.01,
-    "N2": 28.01,
-    "Ar": 39.95,
-}
-
-
 def _dry_syngas_lhv_mj_per_kg(comp: Mapping[str, float]) -> float:
     """由干基 vol% 估算合成气质量加权低位热值 (MJ/kg)。"""
     mass_weighted_lhv = 0.0
     mass_denom = 0.0
-    for sp, mw in _SYNGAS_MW.items():
-        y = max(float(comp.get(sp, 0.0)), 0.0)
+    for sp, value in comp.items():
+        mw = MOLECULAR_WEIGHT.get(sp)
+        if mw is None or sp == "H2O":
+            continue
+        y = max(float(value), 0.0)
         if y <= 0.0:
             continue
         w = y * mw
@@ -954,6 +952,90 @@ def _dry_syngas_lhv_mj_per_kg(comp: Mapping[str, float]) -> float:
     if mass_denom <= 0.0:
         return 0.0
     return mass_weighted_lhv / mass_denom  # already MJ/kg
+
+
+def _dry_gas_mass_kg_h(
+    wet_gas_mass_kg_h: float,
+    dry_comp: Mapping[str, float],
+    wet_h2o_vol_pct: float,
+) -> float:
+    """由湿气总质量 + 干基组成 + 湿基 H2O 体积分数反推干气质量。"""
+    dry_total = sum(max(float(value), 0.0) for sp, value in dry_comp.items() if sp != "H2O")
+    if wet_gas_mass_kg_h <= 0.0 or dry_total <= 0.0:
+        return 0.0
+    dry_avg_mw = sum(
+        max(float(value), 0.0) / dry_total * MOLECULAR_WEIGHT[sp]
+        for sp, value in dry_comp.items()
+        if sp != "H2O" and sp in MOLECULAR_WEIGHT and float(value) > 0.0
+    )
+    if dry_avg_mw <= 0.0:
+        return 0.0
+    wet_h2o_frac = max(0.0, min(float(wet_h2o_vol_pct), 100.0)) / 100.0
+    wet_avg_mw = (1.0 - wet_h2o_frac) * dry_avg_mw + wet_h2o_frac * MOLECULAR_WEIGHT["H2O"]
+    if wet_avg_mw <= 0.0:
+        return 0.0
+    dry_mass_frac = (1.0 - wet_h2o_frac) * dry_avg_mw / wet_avg_mw
+    return wet_gas_mass_kg_h * dry_mass_frac
+
+
+def _dry_syngas_energy_mj_h(
+    wet_gas_mass_kg_h: float,
+    dry_comp: Mapping[str, float],
+    wet_h2o_vol_pct: float,
+) -> float:
+    """干基组成对应的化学能：LHV(dry gas) × 干气质量。"""
+    dry_mass_kg_h = _dry_gas_mass_kg_h(wet_gas_mass_kg_h, dry_comp, wet_h2o_vol_pct)
+    if dry_mass_kg_h <= 0.0:
+        return 0.0
+    return dry_mass_kg_h * _dry_syngas_lhv_mj_per_kg(dry_comp)
+
+
+def _stream_lhv_mj_per_kg(stream: str) -> float:
+    if stream == "Biomass":
+        return _BIOMASS_LHV_MJ_PER_KG
+    return 0.0
+
+
+def _section_feed_chemical_energy_mj_h(inputs: Mapping[str, Any], section: str) -> float:
+    pfd = dict(inputs.get("pfd_feeds") or {})
+    energy = 0.0
+    for line in PFD_FEED_LINES:
+        if line.section != section:
+            continue
+        mass_kg_h = float((pfd.get(line.backend_stream) or {}).get("mass_kg_h", 0.0))
+        energy += max(mass_kg_h, 0.0) * _stream_lhv_mj_per_kg(line.backend_stream)
+    return energy
+
+
+def _total_feed_chemical_energy_mj_h(inputs: Mapping[str, Any]) -> float:
+    pfd = dict(inputs.get("pfd_feeds") or {})
+    energy = 0.0
+    for stream, row in pfd.items():
+        energy += max(float((row or {}).get("mass_kg_h", 0.0)), 0.0) * _stream_lhv_mj_per_kg(str(stream))
+    return energy
+
+
+def _tar_lhv_mj_per_kg(formula: str) -> float:
+    """由 tar 经验式按 Dulong 相关式估算 LHV (MJ/kg)。"""
+    try:
+        atoms = parse_empirical_formula(str(formula))
+        mw = empirical_formula_mw(str(formula))
+    except (KeyError, ValueError):
+        return 0.0
+    if mw <= 0.0:
+        return 0.0
+    c_wt_pct = 100.0 * atoms.get("C", 0.0) * ATOMIC_WEIGHT["C"] / mw
+    h_wt_pct = 100.0 * atoms.get("H", 0.0) * ATOMIC_WEIGHT["H"] / mw
+    o_wt_pct = 100.0 * atoms.get("O", 0.0) * ATOMIC_WEIGHT["O"] / mw
+    s_wt_pct = 100.0 * atoms.get("S", 0.0) * ATOMIC_WEIGHT["S"] / mw
+    h_available = max(h_wt_pct - o_wt_pct / 8.0, 0.0)
+    hhv = (
+        _DULONG_C_COEFF * c_wt_pct
+        + _DULONG_H_COEFF * h_available
+        + _DULONG_S_COEFF * s_wt_pct
+    )
+    water_from_h_kg_per_kg = 9.0 * h_wt_pct / 100.0
+    return max(hhv - _WATER_LATENT_HEAT_MJ_PER_KG * water_from_h_kg_per_kg, 0.0)
 
 
 def carbon_conversion_pct(res: SimulationResult) -> Optional[float]:
@@ -982,18 +1064,17 @@ def cold_gas_efficiency_inci_pct(
     inputs: Mapping[str, Any],
     res: SimulationResult,
 ) -> Optional[float]:
-    """INCI 冷煤气效率：INCI 出口合成气热值 / 生物质进料热值。
-    分母为生物质进料 LHV；INCI 级可期待 60-90%。
+    """INCI 冷煤气效率：INCI 出口干气化学能 / INCI 入口总化学能。
+    当前默认工况下 INCI 入口化学能主要来自 Biomass。
     """
-    pfd = dict(inputs.get("pfd_feeds") or {})
-    bio_kg = float((pfd.get("Biomass") or {}).get("mass_kg_h", 0.0))
-    if bio_kg <= 1e-6:
+    energy_out = _dry_syngas_energy_mj_h(
+        res.inci_top_kg_h,
+        res.inci_comp_dry_full_vol_pct,
+        float(res.inci_comp_wet_full_vol_pct.get("H2O", 0.0)),
+    )
+    if energy_out <= 0.0:
         return None
-    lhv_gas = _dry_syngas_lhv_mj_per_kg(res.inci_comp_dry_vol_pct)
-    if lhv_gas <= 0.0:
-        return None
-    energy_out = res.inci_top_kg_h * lhv_gas
-    energy_in = bio_kg * _BIOMASS_LHV_MJ_PER_KG
+    energy_in = _section_feed_chemical_energy_mj_h(inputs, "INCI")
     if energy_in <= 0.0:
         return None
     return 100.0 * energy_out / energy_in
@@ -1003,28 +1084,34 @@ def cold_gas_efficiency_pox_pct(
     inputs: Mapping[str, Any],
     res: SimulationResult,
 ) -> Optional[float]:
-    """POX 冷煤气效率：RGPOX 出口合成气热值 / (INCI 出口气热值 + 入 POX 炭热值)。
-    分母为 INCI 输出到 RGPOX 的全部化学能（气体 + 炭），不含生物质。
+    """POX 冷煤气效率：RGPOX 出口干气化学能 / POX 入口总化学能。
+    POX 入口总化学能包括 INCI 出口干气、tar、入 POX 炭以及 RGPOX 边界直接进料。
     """
-    # 分子：RGPOX 出口合成气化学能
-    lhv_pox = _dry_syngas_lhv_mj_per_kg(res.pox_comp_dry_vol_pct)
-    if lhv_pox <= 0.0:
+    energy_out = _dry_syngas_energy_mj_h(
+        res.pox_gas_kg_h,
+        res.pox_comp_dry_full_vol_pct,
+        float(res.pox_comp_wet_vol_pct.get("H2O", 0.0)),
+    )
+    if energy_out <= 0.0:
         return None
-    energy_out = res.pox_gas_kg_h * lhv_pox
 
-    # 分母：INCI 出口气能 + 入 POX 炭能
-    lhv_inci = _dry_syngas_lhv_mj_per_kg(res.inci_comp_dry_vol_pct)
-    if lhv_inci <= 0.0:
+    energy_inci_gas = _dry_syngas_energy_mj_h(
+        res.inci_top_kg_h,
+        res.inci_comp_dry_full_vol_pct,
+        float(res.inci_comp_wet_full_vol_pct.get("H2O", 0.0)),
+    )
+    if energy_inci_gas <= 0.0:
         return None
-    energy_inci_gas = res.inci_top_kg_h * lhv_inci
 
     if res.inci_mass_audit is not None:
         char_to_pox_kg_h = res.inci_mass_audit.char_to_pox_kg_h
     else:
         char_to_pox_kg_h = 0.0
     energy_char = char_to_pox_kg_h * _CHAR_LHV_MJ_PER_KG
+    tar_formula = str(DEFAULT_CHEMISTRY_SETUP.get("Tar Formula", "CHO0.082N0.01"))
+    energy_tar = max(res.inci_tar_kg_h, 0.0) * _tar_lhv_mj_per_kg(tar_formula)
 
-    energy_in = energy_inci_gas + energy_char
+    energy_in = energy_inci_gas + energy_tar + energy_char + _section_feed_chemical_energy_mj_h(inputs, "RGPOX")
     if energy_in <= 1e-6:
         return None
     return 100.0 * energy_out / energy_in
@@ -1034,10 +1121,20 @@ def cold_gas_efficiency_pct(
     inputs: Mapping[str, Any],
     res: SimulationResult,
 ) -> Optional[float]:
-    """综合冷煤气效率：以 RGPOX 最终出口合成气热值 / 生物质进料热值为准。
-    INCI 与 RGPOX 串联：INCI 气体进入 RGPOX 继续转化，最终产品为 RGPOX 出口气。
+    """综合冷煤气效率：RGPOX 最终出口干气化学能 / 全系统外部入口总化学能。
+    最终产品按 RGPOX 出口干气计；Quench 加水只改变湿气质量，不应抬高 CGE。
     """
-    return cold_gas_efficiency_pox_pct(inputs, res)
+    energy_out = _dry_syngas_energy_mj_h(
+        res.pox_gas_kg_h,
+        res.pox_comp_dry_full_vol_pct,
+        float(res.pox_comp_wet_vol_pct.get("H2O", 0.0)),
+    )
+    if energy_out <= 0.0:
+        return None
+    energy_in = _total_feed_chemical_energy_mj_h(inputs)
+    if energy_in <= 0.0:
+        return None
+    return 100.0 * energy_out / energy_in
 
 
 def _fmt_metric(value: Optional[float], *, digits: int = 1, suffix: str = "") -> str:

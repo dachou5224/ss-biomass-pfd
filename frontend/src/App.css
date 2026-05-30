@@ -185,6 +185,46 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.equipment-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.equipment-composition-grid {
+  margin-top: 6px;
+}
+
+.composition-head {
+  margin-bottom: 10px;
+}
+
+.composition-head h4 {
+  margin: 0 0 4px;
+  font-size: 0.95rem;
+}
+
+.composition-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.process-diagram-frame {
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #fff;
+  padding: 12px;
+}
+
+.process-diagram {
+  display: block;
+  width: 100%;
+  min-width: 720px;
+  height: auto;
+}
+
 .chemistry-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }

@@ -242,6 +242,22 @@ def build_full_compute_response(payload: Mapping[str, Any]) -> Dict[str, Any]:
         "compositions": {
             "inci_wet_vol_pct": result.inci_comp_wet_vol_pct,
             "rgpox_wet_vol_pct": result.pox_comp_wet_vol_pct,
+            "inci": {
+                "title": "INCI",
+                "equipment_id": "Unit 13",
+                "dry_stream_id": "13PGI-1",
+                "wet_stream_id": "13PGI-1",
+                "dry_vol_pct": result.inci_comp_dry_full_vol_pct,
+                "wet_vol_pct": result.inci_comp_wet_full_vol_pct,
+            },
+            "pox": {
+                "title": "POX / RGPOX",
+                "equipment_id": "Unit 15",
+                "dry_stream_id": "15PGR-1",
+                "wet_stream_id": "15PGR-2",
+                "dry_vol_pct": result.pox_comp_dry_full_vol_pct,
+                "wet_vol_pct": result.pox_comp_wet_full_vol_pct,
+            },
         },
         "comparison": comparison,
         "tables": {
