@@ -7,7 +7,7 @@ from typing import Dict, List, Optional
 from .contracts import H2OBudgetRow, InciMassAudit, MassStreamRow, StageElementBalance
 from .reference_streams import load_dbi_inci_mass_balance
 from .parameters import AUDIT_CFG, NUMERICAL_CFG
-from .species import ATOMIC_WEIGHT, elemental_totals_from_species, species_flow_mass_kg_h
+from .species import ATOMIC_WEIGHT, MOLECULAR_WEIGHT, elemental_totals_from_species, species_flow_mass_kg_h
 from .tar_models import TarAllocation
 
 INCI_AUDIT_ELEMENTS = tuple(AUDIT_CFG["inci_elements"])
@@ -32,6 +32,7 @@ def build_inci_stream_ledger(
     char_to_slag_kg_h: float,
     char_to_pox_kg_h: float,
     slag_to_u14_kg_h: float,
+    n2_makeup_kg_h: float = 0.0,
     dbi_mass_balance: Optional[Dict] = None,
 ) -> List[MassStreamRow]:
     """按 doc/core_topology.svg 列出 INCI 边界主要物流（模型 + DBI 净进料参考）。"""
@@ -46,6 +47,19 @@ def build_inci_stream_ledger(
         MassStreamRow("13HS1-1", "in", "HP Steam", feed_map.get("H2OIN", 0.0)),
         MassStreamRow("13OG2-1", "in", "Oxygen stream (total)", feed_map.get("O2IN", 0.0)),
         MassStreamRow("N2IN", "in", "Nitrogen", feed_map.get("N2IN", 0.0)),
+    ]
+    if n2_makeup_kg_h > 0.01:
+        rows.append(
+            MassStreamRow(
+                "N2-makeup",
+                "in",
+                "N2 makeup (DBI stream-table closure)",
+                n2_makeup_kg_h,
+                "Phase 3C；非 PFD 显式进料",
+            )
+        )
+    rows.extend(
+        [
         MassStreamRow("13PGI-1", "out", "Raw gas fluid phase (model)", gas_mass_kg_h, "气相；对标 DBI gas_flow"),
         MassStreamRow(
             "13PGI-1",
@@ -60,7 +74,14 @@ def build_inci_stream_ledger(
             "out",
             "Bottom solids to Unit 14 (slag line)",
             slag_to_u14_kg_h,
-            f"灰→渣 {ash_to_slag_kg_h:.1f} + 残碳；char→渣 {char_to_slag_kg_h:.1f} 未计入 DBI slag 122",
+            f"灰→渣 {ash_to_slag_kg_h:.1f} + 渣残碳 {char_to_slag_kg_h:.1f} kg/h",
+        ),
+        MassStreamRow(
+            "15PGI-1",
+            "out",
+            "Entrained fly ash + char (model)",
+            char_to_pox_kg_h + ash_to_pox_kg_h,
+            f"C {char_to_pox_kg_h:.1f} + 矿物 {ash_to_pox_kg_h:.1f} kg/h",
         ),
         MassStreamRow(
             "SEP2-bottom",
@@ -71,7 +92,8 @@ def build_inci_stream_ledger(
         ),
         MassStreamRow("→RGPOX", "out", "Char routed to RGPOX", char_to_pox_kg_h),
         MassStreamRow("→RGPOX", "out", "Ash routed to RGPOX", ash_to_pox_kg_h),
-    ]
+        ]
+    )
     if dbi_mass_balance:
         rows.append(MassStreamRow("", "", "—— DBI 边界参考 ——", 0.0))
         for ref in dbi_mass_balance.get("net_inlet", []):
@@ -186,17 +208,23 @@ def build_inci_mass_audit(
     tar_mass_kg_h: float = 0.0,
     tar_allocation: Optional[TarAllocation] = None,
     biomass_s_mol_h: float = 0.0,
+    biomass_carbon_in_kg_h: float = 0.0,
     s_release_frac: float = 1.0,
     matched_case: Optional[str] = None,
     dbi_gas_mass_kg_h: Optional[float] = None,
     dbi_total_flow_kg_h: Optional[float] = None,
     dbi_slag_mass_kg_h: Optional[float] = None,
     dbi_h2o_wet_pct: Optional[float] = None,
+    solid_routing_mode: Optional[str] = None,
+    fly_ash_total_kg_h: Optional[float] = None,
+    fly_ash_to_slag_ratio: Optional[float] = None,
+    n2_makeup_mol_h: float = 0.0,
 ) -> InciMassAudit:
     feed_stream_mass = sum(
         feed_map.get(k, 0.0)
         for k in ("Biomass", "CIN", "O2IN", "H2OIN", "N2IN", "CO2IN")
     )
+    n2_makeup_kg_h = max(n2_makeup_mol_h, 0.0) * MOLECULAR_WEIGHT["N2"] / 1000.0
     feed_element_mass = inlet_element_mass_kg_h(inlet_elem, ash_kg_h)
     gas_mass = species_flow_mass_kg_h(gas_flow_mol_h)
     char_mass = char_carbon_mol_h * ATOMIC_WEIGHT["C"] / 1000.0
@@ -217,10 +245,16 @@ def build_inci_mass_audit(
     total_wet_mol = sum(max(gas_flow_mol_h.get(k, 0.0), 0.0) for k in wet_species_keys)
     dry_gas_mol = max(total_wet_mol - h2o_final, 0.0)
     h2o_wet_pct = 100.0 * h2o_final / total_wet_mol if total_wet_mol > 0.0 else 0.0
+    overall_biomass_carbon_conversion_pct = None
+    if biomass_carbon_in_kg_h > _MASS_CLOSURE_FLOOR:
+        overall_biomass_carbon_conversion_pct = (
+            100.0 * max(float(biomass_carbon_in_kg_h) - char_mass, 0.0) / float(biomass_carbon_in_kg_h)
+        )
 
     return InciMassAudit(
         feed_stream_mass_kg_h=round(feed_stream_mass, 3),
         feed_element_mass_kg_h=round(feed_element_mass, 3),
+        biomass_carbon_in_kg_h=round(biomass_carbon_in_kg_h, 3),
         gas_mass_kg_h=round(gas_mass, 3),
         bottom_solids_kg_h=round(bottom_solids, 3),
         slag_to_u14_kg_h=round(slag_to_u14_kg_h, 3),
@@ -259,6 +293,7 @@ def build_inci_mass_audit(
             char_to_slag_kg_h=char_to_slag_kg_h,
             char_to_pox_kg_h=char_to_pox_kg_h,
             slag_to_u14_kg_h=slag_to_u14_kg_h,
+            n2_makeup_kg_h=n2_makeup_kg_h,
             dbi_mass_balance=dbi_mass_balance,
         ),
         dbi_net_inlet_kg_h=dbi_net_inlet,
@@ -268,4 +303,16 @@ def build_inci_mass_audit(
         dbi_slag_mass_kg_h=dbi_slag_mass_kg_h,
         dbi_h2o_wet_pct=dbi_h2o_wet_pct,
         h2o_wet_pct_model=round(h2o_wet_pct, 3),
+        overall_biomass_carbon_conversion_pct=(
+            round(overall_biomass_carbon_conversion_pct, 4)
+            if overall_biomass_carbon_conversion_pct is not None
+            else None
+        ),
+        solid_routing_mode=solid_routing_mode,
+        fly_ash_total_kg_h=round(fly_ash_total_kg_h, 3) if fly_ash_total_kg_h is not None else None,
+        fly_ash_to_slag_ratio=round(fly_ash_to_slag_ratio, 4) if fly_ash_to_slag_ratio is not None else None,
+        char_to_slag_kg_h=round(char_to_slag_kg_h, 3),
+        ash_to_slag_kg_h=round(ash_to_slag_kg_h, 3),
+        n2_makeup_mol_h=round(n2_makeup_mol_h, 1),
+        n2_makeup_kg_h=round(n2_makeup_kg_h, 3),
     )

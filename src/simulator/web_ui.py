@@ -13,7 +13,7 @@ from .contracts import SimulationResult
 
 from .data import REFERENCE_CASES, build_chem_df, build_feed_df, build_specs_df
 from .elemental import BIOMASS_ANALYSIS_CHEM_KEYS, BIOMASS_SAMPLES
-from .parameters import ATOMIC_WEIGHT, DEFAULT_CHEMISTRY_SETUP, DEFAULT_REACTOR_SPECS, MOLECULAR_WEIGHT
+from .parameters import ATOMIC_WEIGHT, DEFAULT_CHEMISTRY_SETUP, DEFAULT_REACTOR_SPECS, MOLECULAR_WEIGHT, RGPOX_CFG
 from .rgpox import empirical_formula_mw, parse_empirical_formula
 from .pfd_diagram import FEED_TO_PFD, PFD_WORKBOOK_IMAGE
 
@@ -75,11 +75,14 @@ O2IN_CHEM_FIELDS: Dict[str, str] = {
 BIOMASS_UI_FIELDS: Tuple[Tuple[str, str, str], ...] = (
     ("mad_pct", "收到基水分 Mad (%)", "工分"),
     ("ad_pct", "干基灰分 Ad (%)", "工分"),
+    ("vd_pct_dry", "干燥基挥发分 Vd (%)", "工分"),
+    ("fcd_pct_dry", "干燥基固定碳 FCd (%)", "工分"),
     ("cd_pct_dry", "干基碳 C (%)", "元分（干基）"),
     ("hd_pct_dry", "干基氢 H (%)", "元分（干基）"),
     ("od_pct_dry", "干基氧 O (%)", "元分（干基）"),
     ("nd_pct_dry", "干基氮 N (%)", "元分（干基）"),
     ("sd_pct_dry", "干基硫 S (%)", "元分（干基）"),
+    ("cl_pct_dry", "干基氯 Cl (%)", "元分（干基）"),
 )
 
 
@@ -105,8 +108,8 @@ TUNING_PARAMS: Tuple[TuningParam, ...] = (
     TuningParam(
         "TA DeltaT WGS (C)",
         "INCI · WGS ΔT (°C)",
-        "受限平衡 WGS 参考温度偏移；湿基收口约 +40°C。",
-        _ref("+40"),
+        "受限平衡 WGS 参考温度偏移；当前 Case-1 收口约 +100°C。",
+        _ref("+100"),
         "INCI 受限平衡",
         min_value=-200.0,
         max_value=200.0,
@@ -115,8 +118,8 @@ TUNING_PARAMS: Tuple[TuningParam, ...] = (
     TuningParam(
         "TA DeltaT Meth (C)",
         "INCI · 甲烷化 ΔT (°C)",
-        "甲烷化 TA；Case-1 约 +350°C。",
-        _ref("+350"),
+        "甲烷化 TA；当前 Case-1 约 +425°C。",
+        _ref("+425"),
         "INCI 受限平衡",
         min_value=-200.0,
         max_value=500.0,
@@ -125,8 +128,8 @@ TUNING_PARAMS: Tuple[TuningParam, ...] = (
     TuningParam(
         "WGS Equilibrium Approach Eta",
         "INCI · WGS η",
-        "1.0 = 完全趋近。",
-        _ref("1.0"),
+        "当前 Case-1 收口约 0.85。",
+        _ref("0.85"),
         "INCI 受限平衡",
         min_value=0.0,
         max_value=1.0,
@@ -135,8 +138,8 @@ TUNING_PARAMS: Tuple[TuningParam, ...] = (
     TuningParam(
         "Meth Equilibrium Approach Eta",
         "INCI · 甲烷化 η",
-        "1.0 = 完全趋近。",
-        _ref("1.0"),
+        "当前 Case-1 收口约 0.70。",
+        _ref("0.70"),
         "INCI 受限平衡",
         min_value=0.0,
         max_value=1.0,
@@ -185,12 +188,22 @@ TUNING_PARAMS: Tuple[TuningParam, ...] = (
     TuningParam(
         "Biomass VM Dry wt%",
         "干燥基挥发分 VM (%)",
-        "Hamel 热解分配。",
-        _ref("75"),
+        "默认随 Sample（11#=75.01，8#=77.60）；可覆盖 Hamel 热解分配。",
+        _ref("75.01 (11#)"),
         "热解与 Tar",
         min_value=0.0,
         max_value=100.0,
-        step=1.0,
+        step=0.01,
+    ),
+    TuningParam(
+        "Biomass FC Dry wt%",
+        "干燥基固定碳 FC (%)",
+        "默认随 Sample（11#=16.99，8#=17.64）；审计用，热解主用 VM。",
+        _ref("16.99 (11#)"),
+        "热解与 Tar",
+        min_value=0.0,
+        max_value=100.0,
+        step=0.01,
     ),
     TuningParam(
         "Tar Yield Factor",
@@ -259,6 +272,72 @@ TUNING_PARAMS: Tuple[TuningParam, ...] = (
         max_value=1.0,
         step=0.02,
     ),
+    TuningParam(
+        "INCI N2 Makeup Mode",
+        "INCI N₂ 补齐模式",
+        "dbi_reference=读 DBI 13PGI-1 湿基 N₂；target_wet_pct=固定目标；off=关闭。",
+        _ref("dbi_reference"),
+        "INCI 出口闭合",
+        kind="select",
+        options=("off", "target_wet_pct", "dbi_reference"),
+    ),
+    TuningParam(
+        "INCI N2 Target Wet mol%",
+        "INCI N₂ 湿基目标",
+        "makeup 模式为 target_wet_pct 或 DBI 缺失时的回退值。",
+        _ref("2.0"),
+        "INCI 出口闭合",
+        min_value=0.0,
+        max_value=10.0,
+        step=0.05,
+    ),
+    TuningParam(
+        "INCI Solid Routing Mode",
+        "INCI 固相路由模式",
+        "Fly Ash Ratio=流化床灰渣比；DBI Boundary=冻结边界表；Legacy Fraction=旧分流系数。",
+        _ref("Fly Ash Ratio"),
+        "INCI 固相路由（高级）",
+        kind="select",
+        options=("Fly Ash Ratio", "DBI Boundary", "Legacy Fraction"),
+    ),
+    TuningParam(
+        "INCI Fly Ash / Slag Mass Ratio",
+        "灰渣比（飞灰/底渣）",
+        "飞灰含夹带 char+fly ash；底渣为 13LBS-1。Case-1 DBI ≈275.3/110=2.503。",
+        _ref("2.5027"),
+        "INCI 固相路由（高级）",
+        min_value=0.1,
+        max_value=20.0,
+        step=0.01,
+    ),
+    TuningParam(
+        "INCI Fly Ash Residual C wt% dry",
+        "飞灰残炭 wt% (dry)",
+        "15PGI-1 夹带固相干基残炭；Case-1 DBI=73.37%。",
+        _ref("73.37"),
+        "INCI 固相路由（高级）",
+        min_value=0.0,
+        max_value=100.0,
+        step=0.1,
+    ),
+    TuningParam(
+        "INCI Slag Residual C wt% dry",
+        "底渣残炭 wt% (dry)",
+        "13LBS-1 渣线干基残炭；Case-1 DBI=0%。",
+        _ref("0"),
+        "INCI 固相路由（高级）",
+        min_value=0.0,
+        max_value=100.0,
+        step=0.1,
+    ),
+    TuningParam(
+        "INCI Overall Biomass C Conversion",
+        "整体生物质碳转化率",
+        "留空=自动（DBI 边界或 model_fixed）；0–1 小数。",
+        _ref("0.8835 auto"),
+        "INCI 固相路由（高级）",
+        kind="text",
+    ),
 )
 
 TUNING_SECTIONS: Tuple[str, ...] = tuple(dict.fromkeys(p.section for p in TUNING_PARAMS))
@@ -276,10 +355,13 @@ def biomass_analysis_from_sample(sample_id: str) -> Dict[str, float]:
         "preset": sample_id,
         "mad_pct": s.mad_pct,
         "ad_pct": s.ad_pct,
+        "vd_pct_dry": s.vd_pct_dry,
+        "fcd_pct_dry": s.fcd_pct_dry,
         "cd_pct_dry": s.cd_pct_dry,
         "hd_pct_dry": s.hd_pct_dry,
         "nd_pct_dry": s.nd_pct_dry,
         "sd_pct_dry": s.sd_pct_dry,
+        "cl_pct_dry": s.cl_pct_dry,
         "od_pct_dry": s.od_pct_dry,
     }
 
@@ -1038,17 +1120,57 @@ def _tar_lhv_mj_per_kg(formula: str) -> float:
     return max(hhv - _WATER_LATENT_HEAT_MJ_PER_KG * water_from_h_kg_per_kg, 0.0)
 
 
-def carbon_conversion_pct(res: SimulationResult) -> Optional[float]:
-    """INCI 碳元素气相转化率（含 Tar 计入气相 C）。"""
-    rows = (
-        res.inci_mass_audit.element_balance
-        if res.inci_mass_audit is not None
-        else res.element_balance
-    )
+def carbon_conversion_inci_pct(res: SimulationResult) -> Optional[float]:
+    """INCI 段生物质整体碳转化率。"""
+    if res.inci_mass_audit is not None and res.inci_mass_audit.overall_biomass_carbon_conversion_pct is not None:
+        return float(res.inci_mass_audit.overall_biomass_carbon_conversion_pct)
+    rows = res.inci_mass_audit.element_balance if res.inci_mass_audit is not None else res.element_balance
     for row in rows:
         if row.stage == "INCI" and row.element == "C" and row.inlet_mol_h > 1e-9:
             return 100.0 * row.outlet_gas_mol_h / row.inlet_mol_h
     return None
+
+
+def _rgpox_boundary_solid_basis_kg_h(res: SimulationResult) -> tuple[float, float] | None:
+    audit = res.rgpox_inlet_audit
+    if audit is None:
+        return None
+    solid_row = next(
+        (row for row in audit.mass_rows if row.stream_id == "15PGI-1" and row.component == "solid"),
+        None,
+    )
+    if solid_row is None or solid_row.model_kg_h <= 1e-9:
+        return None
+    solid_cfg = dict(RGPOX_CFG.get("entrained_solid", {}))
+    carbon_wt_pct = max(float(solid_cfg.get("dust_carbon_wt_pct_dry", 0.0)), 0.0)
+    mineral_wt_pct = max(float(solid_cfg.get("dust_minerals_wt_pct_dry", 100.0 - carbon_wt_pct)), 0.0)
+    total_kg_h = max(float(solid_row.model_kg_h), 0.0)
+    return (
+        total_kg_h * carbon_wt_pct / 100.0,
+        total_kg_h * mineral_wt_pct / 100.0,
+    )
+
+
+def carbon_conversion_pox_pct(res: SimulationResult) -> Optional[float]:
+    """POX 段碳转化率：优先按 15PGI-1 入口固相边界核算；缺失时回退 SEP2 路由。"""
+    solid_basis = _rgpox_boundary_solid_basis_kg_h(res)
+    if solid_basis is not None:
+        carbon_in, mineral_in = solid_basis
+    else:
+        audit = res.inci_mass_audit
+        if audit is None:
+            return None
+        carbon_in = max(float(audit.char_to_pox_kg_h), 0.0)
+        mineral_in = max(float(audit.ash_to_pox_kg_h), 0.0)
+    if carbon_in <= 1e-9:
+        return None
+    residual_carbon = max(float(res.pox_ash_kg_h) - mineral_in, 0.0)
+    return 100.0 * max(carbon_in - residual_carbon, 0.0) / carbon_in
+
+
+def carbon_conversion_pct(res: SimulationResult) -> Optional[float]:
+    """兼容旧字段：默认返回 INCI 碳转化率。"""
+    return carbon_conversion_inci_pct(res)
 
 
 def h2_co_ratio_dry(res: SimulationResult) -> Optional[float]:

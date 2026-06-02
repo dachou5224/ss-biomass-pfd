@@ -45,4 +45,5 @@ PDF 提取的参考物流 CSV 仍在 `data/reference/`（**不纳入 Git**）。
 - `../data/reference/inci_streams.csv`（本地）: Case-1 stream 13PGI-1 湿基 mol/mol 全组分。
 - `../data/reference/dbi_inci_stream_table_case1.csv`（本地）: Case-1 全流股 stream table；`python3 scripts/extract_dbi_inci_stream_table.py`。
 - `inci-mass-balance-audit.md`: INCI 湿基 H2O / 气相质量偏差守恒审计（Case-1）。
+- `rgpox_tuning_strategy.md`: **RGPOX 调参基线（Phase 3B 重启）**、质量–组成 Pareto 与禁止反推 6571 kg/h 的约定。
 - `dbi-inci-element-balance-audit.md`: 自 DBI 全量 stream table 的 INCI 边界 **C/H/O/N/S** 元素衡算（`scripts/audit_dbi_inci_element_balance.py` 生成）。

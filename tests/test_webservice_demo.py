@@ -2,6 +2,8 @@ import os
 import sys
 import json
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from simulator.webservice_demo import (
@@ -84,11 +86,23 @@ def test_full_compute_response_returns_result_sections():
     assert "compositions" in res
     assert "tables" in res
     assert "feed_summary" in res["tables"]
-    assert "unit_trace" in res["tables"]
+    assert "comparison" not in res
+    assert "unit_trace" not in res["tables"]
+    assert "rmsd_inci_primary_pct" not in res["result_summary"]
+    assert "rmsd_pox_primary_pct" not in res["result_summary"]
+    assert "carbon_conversion_inci_pct" in res["performance"]
+    assert "carbon_conversion_pox_pct" in res["performance"]
+    assert "inci_solid_routing" in res
+    routing = res["inci_solid_routing"]
+    assert routing is not None
+    assert routing["mode"] == "Fly Ash Ratio"
+    assert routing["slag_to_u14_kg_h"] == pytest.approx(110.0, abs=0.5)
+    assert routing["fly_ash_total_kg_h"] == pytest.approx(275.3, abs=0.5)
+    assert routing["char_to_pox_kg_h"] == pytest.approx(201.988, abs=0.05)
 
 
 def test_full_compute_response_case2_is_json_safe():
-    # Regression: ISSUE-007 — Case-2 comparison rows emitted NaN and broke frontend JSON parsing
+    # Regression: ISSUE-007 — Case-2 full response emitted NaN and broke frontend JSON parsing
     # Found by /qa on 2026-05-30
     # Report: .gstack/qa-reports/qa-report-local-frontend-2026-05-30.md
     res = build_full_compute_response({"case_id": "Case-2"})
@@ -97,4 +111,5 @@ def test_full_compute_response_case2_is_json_safe():
 
     assert decoded["input"]["case_id"] == "Case-2"
     assert "inci" in decoded["compositions"]
-    assert all(row["DBI"] is None or isinstance(row["DBI"], (int, float)) for row in decoded["comparison"]["rgpox_wet"])
+    assert "comparison" not in decoded
+    assert "unit_trace" not in decoded["tables"]

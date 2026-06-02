@@ -10,7 +10,12 @@ from .parameters import (
     feeds_to_tuples,
     load_json_config,
 )
-from .reference_streams import attach_inci_stream_to_expected, attach_rgpox_stream_to_expected
+from .elemental import BIOMASS_SAMPLES
+from .reference_streams import (
+    attach_dbi_inci_boundary_to_expected,
+    attach_inci_stream_to_expected,
+    attach_rgpox_stream_to_expected,
+)
 
 
 def _build_reference_cases() -> dict:
@@ -25,7 +30,13 @@ def _build_reference_cases() -> dict:
             "expected": dict(payload["expected"]),
         }
     for case_id in cases:
-        expected = attach_inci_stream_to_expected(cases[case_id]["expected"], case_id)
+        biomass_feed_kg_h = float((cases[case_id]["feeds"].get("Biomass") or (0.0, 0.0, 0.0))[0])
+        expected = attach_dbi_inci_boundary_to_expected(
+            cases[case_id]["expected"],
+            case_id,
+            biomass_feed_kg_h=biomass_feed_kg_h,
+        )
+        expected = attach_inci_stream_to_expected(expected, case_id)
         cases[case_id]["expected"] = attach_rgpox_stream_to_expected(expected, case_id)
     return cases
 
@@ -58,6 +69,10 @@ def build_specs_df() -> pd.DataFrame:
 def build_chem_df(case_id: str | None = None) -> pd.DataFrame:
     case_id = case_id or DEFAULT_CASE_ID
     config = dict(DEFAULT_CHEMISTRY_SETUP)
-    config["Sample"] = REFERENCE_CASES[case_id]["sample"]
+    sample_id = REFERENCE_CASES[case_id]["sample"]
+    config["Sample"] = sample_id
+    sample = BIOMASS_SAMPLES[sample_id]
+    config["Biomass VM Dry wt%"] = sample.vd_pct_dry
+    config["Biomass FC Dry wt%"] = sample.fcd_pct_dry
     rows = [{"Field": key, "Value": value} for key, value in config.items()]
     return pd.DataFrame(rows)

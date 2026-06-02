@@ -151,12 +151,26 @@ O₂ 杂质模型（`backend._o2_impurity_moles()`）：设 O₂ 纯度为 \(\ph
 \dot{n}_{\mathrm{Ar,imp}} = \dot{n}_{\mathrm{imp}} \times \frac{3.25}{5.0}
 \]
 
-分配后直接写入出口流：
+生物质氮中未进入 NH₃ 的部分按 `_split_biomass_n()` 转为 N₂（见 2.3）。
+
+#### Phase 3C：N₂ makeup（DBI 组成闭合）
+
+Case-1 中 DBI 13PGI-1 湿基 N₂ = **2.0%**，而 O₂IN 杂质 + 生物质 N₂ 化合计仅 ~0.65%。该差额在 PFD 进料表（N₂IN=0）中无显式对应，视为 stream table 的**惰性气补齐项**。
+
+`backend._apply_inci_n2_makeup()` 在 trace 分配之后执行：
 
 \[
-\dot{n}_{\mathrm{N_2,out}} = \dot{n}_{\mathrm{N_2,feed}}, \quad
-\dot{n}_{\mathrm{Ar,out}} = \dot{n}_{\mathrm{Ar,feed}}
+\Delta n_{\mathrm{N_2}} = \frac{y_{\mathrm{target}} \sum_j n_j - n_{\mathrm{N_2}}}{1 - y_{\mathrm{target}}}
 \]
+
+其中 \(y_{\mathrm{target}}\) 为湿基 mol 分率目标，\(\sum_j n_j\) 为 `INCI_WET_SPECIES` 总湿摩尔。
+
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| `INCI N2 Makeup Mode` | `dbi_reference` | `off` / `target_wet_pct` / `dbi_reference` |
+| `INCI N2 Target Wet mol%` | 2.0 | 固定目标或 DBI 缺失时回退 |
+
+审计口径：makeup N₂ 记入虚拟进料 `N2-makeup` 与元素衡算进 N，保持质量闭合约束；**不参与 Gibbs/TA**。
 
 ### 2.5 vol% 汇总口径
 
@@ -175,7 +189,7 @@ O₂ 杂质模型（`backend._o2_impurity_moles()`）：设 O₂ 纯度为 \(\ph
 | DBI 物种 | 原型状态 |
 |----------|----------|
 | HCN | 未建模；全组分 RMSD 计算时排除 |
-| HCl | PDF Case-1 未列出；预留于 `INCI_UNMODELLED_WET_SPECIES` |
+| HCl | 生物质 Cl 100%→HCl；见 `_split_biomass_cl()` |
 
 ## 3. RMSD 对标口径
 

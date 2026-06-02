@@ -26,6 +26,7 @@ USER_CHEMISTRY_FIELDS: tuple[str, ...] = (
     "Tar target H/C",
     "Pyrolysis Scheme",
     "Biomass VM Dry wt%",
+    "Biomass FC Dry wt%",
     "TA DeltaT WGS (C)",
     "TA DeltaT Meth (C)",
     "WGS Equilibrium Approach Eta",

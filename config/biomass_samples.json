@@ -1,21 +1,27 @@
 {
-  "_comment": "生物质工业/元素分析 (wt%)，mad=收到基水分，ad=干基灰分",
+  "_comment": "生物质工业/元素分析 (wt%)，mad=收到基水分，ad=干基灰分，vd=干燥基挥发分 VM，fcd=干燥基固定碳 FC；来源 TR3 Appendix 3 / 说明文档表2",
   "8#": {
     "mad_pct": 3.72,
     "ad_pct": 4.76,
+    "vd_pct_dry": 77.6,
+    "fcd_pct_dry": 17.64,
     "cd_pct_dry": 48.0,
     "hd_pct_dry": 5.96,
     "nd_pct_dry": 0.65,
     "sd_pct_dry": 0.041,
+    "cl_pct_dry": 0.0,
     "od_pct_dry": 40.589
   },
   "11#": {
     "mad_pct": 5.0,
     "ad_pct": 8.0,
+    "vd_pct_dry": 75.01,
+    "fcd_pct_dry": 16.99,
     "cd_pct_dry": 45.609,
     "hd_pct_dry": 5.626,
     "nd_pct_dry": 0.845,
     "sd_pct_dry": 0.092,
+    "cl_pct_dry": 0.92,
     "od_pct_dry": 38.909
   }
 }

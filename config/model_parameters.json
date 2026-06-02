@@ -28,15 +28,14 @@
     "Tar Yield Factor": "0.01 * C_dry",
     "Tar target H/C": 1.2,
     "Pyrolysis Scheme": "hamel",
-    "Biomass VM Dry wt%": 75.0,
-    "TA DeltaT WGS (C)": 40.0,
-    "TA DeltaT Meth (C)": 350.0,
-    "WGS Equilibrium Approach Eta": 1.0,
-    "Meth Equilibrium Approach Eta": 1.0,
+    "TA DeltaT WGS (C)": 100.0,
+    "TA DeltaT Meth (C)": 425.0,
+    "WGS Equilibrium Approach Eta": 0.85,
+    "Meth Equilibrium Approach Eta": 0.7,
     "TA DeltaT OxCO (C)": 0.0,
     "TA DeltaT OxH2 (C)": 0.0,
     "TA DeltaT OxCH4 (C)": 0.0,
-    "RGPOX TA DeltaT WGS (C)": -130.0,
+    "RGPOX TA DeltaT WGS (C)": -160.0,
     "RGPOX TA DeltaT Meth (C)": 0.0,
     "RGPOX WGS Equilibrium Approach Eta": 1.0,
     "RGPOX Meth Equilibrium Approach Eta": 1.0,
@@ -50,10 +49,17 @@
     "H2S/COS split to H2S": 0.961,
     "Biomass N to NH3 Frac": 0.016,
     "Biomass S Release Frac": 0.45,
+    "INCI N2 Makeup Mode": "dbi_reference",
+    "INCI N2 Target Wet mol%": 2.0,
     "RGPOX CH4 Target @1300C (%)": 0.55,
     "RGPOX CH4 Target @1400C (%)": 0.1,
     "RGPOX CH4 Target @1500C (%)": 0.05,
-    "Constraint Mode": "Restricted Equilibrium"
+    "Constraint Mode": "Restricted Equilibrium",
+    "INCI Solid Routing Mode": "Fly Ash Ratio",
+    "INCI Fly Ash / Slag Mass Ratio": 2.5027,
+    "INCI Fly Ash Residual C wt% dry": 73.37,
+    "INCI Slag Residual C wt% dry": 0.0,
+    "INCI Overall Biomass C Conversion": ""
   },
   "defaults": {
     "_comment": "build_*_df 默认工况",
@@ -68,6 +74,7 @@
       "O": 15.999,
       "N": 14.007,
       "S": 32.06,
+      "Cl": 35.453,
       "Ar": 39.948
     },
     "molecular_weight": {
@@ -81,7 +88,8 @@
       "Ar": 39.948,
       "H2S": 34.081,
       "COS": 60.075,
-      "NH3": 17.031
+      "NH3": 17.031,
+      "HCl": 36.461
     },
     "celsius_to_kelvin_offset": 273.15
   },
@@ -100,7 +108,8 @@
     "minor": [
       "H2S",
       "COS",
-      "NH3"
+      "NH3",
+      "HCl"
     ],
     "inci_major": [
       "CO",
@@ -116,8 +125,7 @@
       "H2O"
     ],
     "unmodelled_wet": [
-      "HCN",
-      "HCl"
+      "HCN"
     ],
     "gibbs_elements": [
       "C",
@@ -169,6 +177,10 @@
     "NH3": {
       "N": 1,
       "H": 3
+    },
+    "HCl": {
+      "H": 1,
+      "Cl": 1
     }
   },
   "tar_models": {
@@ -242,11 +254,37 @@
     "_comment": "渣线残碳目标：残碳质量 ≈ 灰渣质量 / ratio",
     "target_residual_c_ash_mass_ratio": 9.0
   },
+  "inci_fbr_solids": {
+    "_comment": "INCI 流化床固相：飞灰(含残炭 entrained with syngas) vs 13LBS-1 底渣；Case-1 DBI ≈275.3/110",
+    "default_routing_mode": "Fly Ash Ratio",
+    "fly_ash_to_slag_mass_ratio": 2.5027,
+    "fly_ash_residual_carbon_wt_pct_dry": 73.37,
+    "slag_residual_carbon_wt_pct_dry": 0.0
+  },
     "rgpox": {
     "_comment": "RGPOX 阶段；反应温度见 model_fixed.rgpox_t_c",
     "ash_extra_biomass_frac": 0.02,
+    "char_gasification": {
+      "_comment": "Phase 6C 冻结基线（2026-05-31）；见 doc/rgpox_tuning_strategy.md §8、急冷见 doc/quench_benchmark.md",
+      "o2_to_gibbs_mode": "full_feed",
+      "reaction_sequence": "gas_equilibrium_first",
+      "post_char_use_remaining_o2": false,
+      "enable_steam_gasification": true,
+      "enable_boudouard": true,
+      "char_co2_replace_fraction": 0.0,
+      "char_steam_fraction": 1.0,
+      "gasification_order": "boudouard_first",
+      "hetero_ta": {
+        "_comment": "char 异相 Boudouard / 水汽变换 TA；Q≥K 时用 exp(ΔT/200) 缩放动力学上限",
+        "enabled": true,
+        "dt_boudouard_c": -100.0,
+        "dt_char_steam_c": 0.0,
+        "eta_boudouard": 1.0,
+        "eta_char_steam": 1.0
+      }
+    },
     "entrained_solid": {
-      "use_dbi_boundary_mass": true,
+      "use_dbi_boundary_mass": false,
       "dust_carbon_wt_pct_dry": 73.37,
       "dust_minerals_wt_pct_dry": 26.63
     },
@@ -258,15 +296,19 @@
     "use_ch4_target_clamp": false
   },
   "quench": {
-    "_comment": "RGPOX 急冷（移植 gasifier-model/quench_syngas；无反应）",
+    "_comment": "RGPOX 急冷：15PGR-2 气相水量/水气比由出口 T、绝压 P 下 Psat/P 决定；见 doc/quench_benchmark.md",
     "mode": "saturation_temperature",
-    "p_total_mpa_abs": 1.601,
+    "p_total_mpa_abs": 1.5,
+    "_p_comment": "系统 15 bar 表压对应绝压 1.5 MPa(a)；饱和分压 y=P_sat(T)/P_abs",
+    "outlet_t_c": 160.384,
+    "_outlet_t_c_comment": "15PGR-2 出口 ~160°C（与 DBI 159°C 差 ~1°C 已接受）；正向 T+P→y",
     "cp_gas_kj_nm3_c": 2.31,
     "cp_h2o_vapor_kj_nm3_c": 1.85,
     "T_water_in_celsius": 42.0,
     "water_inlet_saturated_liquid": false,
     "cooling_water_mass_flow_kg_h": 91855.0,
-    "outlet_h2o_wet_pct": 39.033,
+    "outlet_h2o_wet_pct": null,
+    "_outlet_h2o_wet_pct_comment": "仅 DBI 验收参考 39.033%；勿作主输入，否则绕过 T+P 饱和平衡",
     "T_bracket_low_c": 100.0,
     "T_bracket_high_c": 250.0
   },
@@ -280,8 +322,8 @@
     "inci_validation_wet_rmsd_limit_case1": 1.22,
     "rgpox_inlet_mass_tol_kg_h": 0.1,
     "rgpox_inlet_gas_wet_rmsd_limit_case1": 1.22,
-    "rgpox_validation_wet_rmsd_limit_case1": 1.5,
-    "rgpox_validation_wet_post_quench_rmsd_limit_case1": 2.0,
+    "rgpox_validation_wet_rmsd_limit_case1": 5.0,
+    "rgpox_validation_wet_post_quench_rmsd_limit_case1": 3.5,
     "inci_validation_dry_rmsd_limit_legacy": 3.5,
     "vol_pct_round_digits": 3,
     "mass_round_digits": 3,

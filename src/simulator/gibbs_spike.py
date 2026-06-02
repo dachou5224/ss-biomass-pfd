@@ -11,6 +11,7 @@ from scipy.optimize import LinearConstraint, differential_evolution, lsq_linear,
 from .backend import _chem_map, _feed_map, _spec_map
 from .data import build_chem_df, build_feed_df, build_specs_df
 from .gibbs import _build_multistart_guesses, solve_gibbs_major
+from .inci_conversion import resolve_inci_char_for_overall_biomass_conversion
 from .parameters import EQUILIBRIUM_CFG, GIBBS_ELEMENTS, GIBBS_SOLVER_CFG, R_CONST
 from .species import ATOM_COUNT, MAJOR_SPECIES
 from .thermo_baseline import get_gibbs_free_energy
@@ -20,6 +21,23 @@ _FLOW_FLOOR = float(_G["flow_floor"])
 _MOL_FRAC_FLOOR = float(_G["mole_fraction_floor"])
 _PRESSURE_RATIO_BAR = float(EQUILIBRIUM_CFG["pressure_ratio_bar"])
 _BALANCE_TOL = float(_G["balance_residual_tol"])
+
+
+def _chem_df_for_gibbs_spike(case_id: str):
+    """Gibbs spike 对照应隔离 INCI N2 makeup（仅影响 stream-table 闭合，不改变 Gibbs 进料元素）。"""
+    import pandas as pd
+
+    chem_df = build_chem_df(case_id)
+    mask = chem_df["Field"] == "INCI N2 Makeup Mode"
+    if mask.any():
+        chem_df = chem_df.copy()
+        chem_df.loc[mask, "Value"] = "off"
+    else:
+        chem_df = pd.concat(
+            [chem_df, pd.DataFrame([{"Field": "INCI N2 Makeup Mode", "Value": "off"}])],
+            ignore_index=True,
+        )
+    return chem_df
 
 
 @dataclass(frozen=True)
@@ -50,14 +68,14 @@ def case1_inci_elemental_feed_mol_h() -> Tuple[Dict[str, float], str]:
     """复用 backend 私有路径，得到 INCI Gibbs 前元素进料 (mol/h)。"""
     from .backend import _build_inci_elemental_inlet, _inci_o2_species_kg_h, _kg_to_mol_h
     from .data import INCI_C_CONVERSION
-    from .elemental import BIOMASS_SAMPLES, biomass_to_elemental_moles
+    from .elemental import BIOMASS_SAMPLES, biomass_to_elemental_moles, biomass_vm_dry_pct
     from .parameters import DEFAULT_BIOMASS_SAMPLE_FALLBACK, DEFAULT_CHEMISTRY_SETUP
     from .pyrolysis import allocate_pyrolysis_products_elemental
     from .species import elemental_totals_from_species
     from .tar_models import parse_tar_yield_mass_kg_h
 
     feed_df = build_feed_df("Case-1")
-    chem_df = build_chem_df("Case-1")
+    chem_df = _chem_df_for_gibbs_spike("Case-1")
     feed = _feed_map(feed_df)
     chem = _chem_map(chem_df)
 
@@ -73,7 +91,7 @@ def case1_inci_elemental_feed_mol_h() -> Tuple[Dict[str, float], str]:
     o2_in_parts = _inci_o2_species_kg_h(feed, chem)
 
     biomass_elem = biomass_to_elemental_moles(sample, feed.get("Biomass", 0.0))
-    vm_frac = np.clip(float(chem.get("Biomass VM Dry wt%", DEFAULT_CHEMISTRY_SETUP["Biomass VM Dry wt%"])), 0.0, 100.0) / 100.0
+    vm_frac = np.clip(biomass_vm_dry_pct(chem), 0.0, 100.0) / 100.0
     biomass_vm_elem = {
         "C": biomass_elem["C"] * vm_frac,
         "H": biomass_elem["H"],
@@ -113,7 +131,11 @@ def case1_inci_elemental_feed_mol_h() -> Tuple[Dict[str, float], str]:
     }
     inci_from_pyro = elemental_totals_from_species(pyro_split.volatile_species_mol_h, list(GIBBS_ELEMENTS))
     char_pool = pyro_split.char_carbon_mol_h + biomass_nonvm_elem["C"]
-    reactive_char = char_pool * INCI_C_CONVERSION
+    reactive_char = resolve_inci_char_for_overall_biomass_conversion(
+        biomass_total_c_mol_h=biomass_elem["C"],
+        char_pool_c_mol_h=char_pool,
+        target_conversion=INCI_C_CONVERSION,
+    ).reactive_char_mol_h
     inci_elem = {
         "C": inci_from_pyro["C"] + reactive_char + _kg_to_mol_h(co2_in_kg_h, 44.009),
         "H": inci_from_pyro["H"] + inci_external["H"],
@@ -332,7 +354,7 @@ def case1_rgpox_elemental_feed_mol_h() -> Tuple[Dict[str, float], str]:
     backend_mod.solve_rgpox_gibbs_equilibrium = _capture
     try:
         feed_df = build_feed_df("Case-1")
-        chem_df = build_chem_df("Case-1")
+        chem_df = _chem_df_for_gibbs_spike("Case-1")
         run_fixed_temperature_simulation(feed_df, build_specs_df(), chem_df)
         sample = _chem_map(chem_df).get("Sample", "Case-1")
     finally:

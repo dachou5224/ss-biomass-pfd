@@ -9,6 +9,10 @@
 - 平衡时 ΔQ = Q_release - Q_absorb = 0
 
 RGPOX 反应区出口已含 H2O 时，见 ``evaluate_quench_wet_inlet`` / ``rgpox_quench``。
+
+15PGR-2 湿合成气中的水量（水气比）应由出口 **温度 T、绝压 P** 的饱和蒸气压（分压）
+决定：P_H2O,gas ≈ P_sat(T)，y_H2O = P_sat(T) / P_abs。
+``outlet_h2o_wet_pct`` 反求 T 仅作 DBI 对标捷径，非主物理路径。
 """
 
 from __future__ import annotations

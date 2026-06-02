@@ -20,11 +20,11 @@ def test_cases_return_major_and_minor_outputs():
         res = _run(case_id)
         assert set(res.inci_comp_dry_vol_pct.keys()) == {"CO", "H2", "CO2", "CH4"}
         assert set(res.pox_comp_dry_vol_pct.keys()) == {"CO", "H2", "CO2", "CH4"}
-        assert set(res.inci_minor_vol_pct.keys()) == {"H2S", "COS", "NH3"}
+        assert set(res.inci_minor_vol_pct.keys()) == {"H2S", "COS", "NH3", "HCl"}
         assert set(res.inci_inert_dry_vol_pct.keys()) == {"N2", "Ar"}
         assert res.inci_minor_vol_pct["NH3"] > 0.0
         assert res.inci_inert_dry_vol_pct["N2"] > 0.0
-        assert set(res.pox_minor_vol_pct.keys()) == {"H2S", "COS", "NH3"}
+        assert set(res.pox_minor_vol_pct.keys()) == {"H2S", "COS", "NH3", "HCl"}
         assert res.matched_case == case_id
 
 

@@ -1,6 +1,6 @@
 # Status Report - ss-biomass-pfd
 
-## 当前进展（2026-05-29）
+## 当前进展（2026-05-30）
 
 ### 1) 模型里程碑
 - INCI Phase 7A：**已收口**（Case-1 湿基对标完成）。
@@ -16,6 +16,7 @@
   - `frontend/` 骨架、API 集成、Vite proxy、VPS 部署配置均已到位
   - 关键 Bug 已修复（见下方 QA 小结）
   - 结果区已按 **INCI / POX** 拆块展示 dry/wet 组成、PFD 物流编号，并嵌入 `core-topology.png`
+  - 出于数据合规，公网 full 结果页与 `simulate-full` 响应已移除 **DBI 对标数据** 与 **单元追踪/AUDIT**
 
 ### 3) 生产 API（P0/P1 完成）
 | 项 | 状态 |
@@ -48,6 +49,32 @@
 - 后端：`pytest -q tests/test_webservice_demo.py tests/test_api_app.py` → **9 passed**
 - 前端：`npm run build` 通过
 - 浏览器：本地 5174 + 8765 联调下，**Case-1、Case-2、移动端窄屏** 均已手测通过；结果区可按 INCI / POX 对照 PFD 流股查看干湿基组成。
+- 碳转化率审计：已修正 **POX 碳转化率** 的展示口径，改为优先按 `15PGI-1` 入口固相边界核算，不再把 INCI `ash_to_pox` 与 RGPOX `pox_ash` 混算。当前 `Case-1` 下 POX 仍显示 `100%`，经审计这是**模型假设结果**而非前端错误：RGPOX 入口固相为 `275.3 kg/h`，其中矿物 `73.312 kg/h`，而 `pox_ash=73.312 kg/h`，等价于残炭为零；根因是默认 `RGPOX_C_CONV=1.0` 且 `use_dbi_boundary_mass=true`。
+- INCI 碳转化率审计：已确认 main 口径偏高由两层原因叠加造成：1) 模型内部 `INCI_C_CONV=0.9` 当前只作用于 char pool，使 Case-1 的 **overall biomass carbon conversion** 约为 `97.50%`；2) 结果页/API 仍按 `outlet_gas_C / inlet_total_C`（含 `CO2IN/CIN`）展示，进一步抬高到 `97.77%`。而按 PFD/stream table 边界（`13C-4`、`13LBS-1`、`15PGI-1`）反推，DBI 对应的 INCI carbon conversion 应约为 **`88.35%`**。
+- 下一阶段：已在 `exp/inci-overall-carbon-conv` 建立 DBI 全面对齐计划，后续将先修正 INCI 未转化碳去向与 `15PGI-1` 固相耦合，再统一 KPI/API 语义并执行 main/exp/DBI 三方回归。
+- Phase 1 已执行：实验分支现已固化第一版 DBI/PFD 边界基线。`src/simulator/reference_streams.py` 新增按 `13C-4` / `13LBS-1` / `15PGI-1` 计算 overall biomass carbon conversion 的 helper，`src/simulator/data.py` 会在本地 DBI 文件可用时将 `dbi_inci_boundary_basis` 挂入 `REFERENCE_CASES[..]["expected"]`；Case-1 当前可直接读到本地基线值，供后续 Phase 2/3 调整时对比。
+- Phase 2 / 4 已执行：实验分支已把 INCI 固相边界与 KPI 语义同步切到 DBI/PFD 口径。当前 Case-1：
+  - `char_to_pox≈201.988 kg/h`
+  - `ash_to_pox≈73.312 kg/h`
+  - `inci_slag=122 kg/h`
+  - `carbon_conversion_inci_pct=88.3456%`
+  上述数值已经与本地 DBI 边界基线一致。
+- Phase 3A 已执行：当前按用户要求改为“一个一个来”，先完成 INCI-only 调参，不再与 POX 联合搜索。Case-1 默认 INCI 参数现为：
+  - `TA DeltaT WGS (C) = 100`
+  - `TA DeltaT Meth (C) = 425`
+  - `WGS Equilibrium Approach Eta = 0.85`
+  - `Meth Equilibrium Approach Eta = 0.70`
+  对应 INCI 拟合评分由旧默认值 `10.8311` 改善到 `7.5401`；当前 INCI 湿基偏差约为：
+  - `CO +0.011 vol%`
+  - `H2 +0.284 vol%`
+  - `CO2 +0.290 vol%`
+  - `CH4 -1.177 vol%`
+  - `H2O +1.935 vol%`
+- Phase 3B 已执行：RGPOX-only TA 扫描确认 `WGS=-120°C` 为当前最优（15PGR-1 RMSD≈1.994%），Ox/Meth TA 在 1400°C 下对组成无实质影响。质量流偏差（`inci_top`≈−576 kg/h）无法仅靠 POX TA 消除，需后续从 INCI 出口总气量继续排查。
+- **Phase 4F validation 基线（2026-05-31）**：对照 Unit 15 PDF（`TR5_APPENDIX 04_1` p2）修正 `reference_cases.json`：`pox_gas_ante_kg_h=7760`、`pox_gas_kg_h=8843`；废弃 `7787`/反推 `6571`。
+- **POX 调参回 Phase 3B（2026-05-31）**：Phase 4 在错误气量目标下「减气」方向有误；默认已回 `full_feed` + `char_before_gibbs` + WGS −120°C（15PGR-1 湿煤气 ~7701 kg/h，RMSD ~2.3%）。后续策略见 `doc/rgpox_tuning_strategy.md`。
+- **Phase 6C 冻结（2026-05-31）**：RGPOX 反应区默认 `gas_equilibrium_first` + WGS −160 + hetero Boud −100；15PGR-1 ante≈7701、RMSD≈2.27%。**TA/char 调参收口**。
+- **Phase 7 验收（2026-05-31）**：急冷改为 **T+P→Psat/P 正向**（P_abs=1.5 MPa，T_out=160.384°C）；15PGR-2 **8770 kg/h** vs DBI 8843（Δ−0.8%），湿基 RMSD≈1.86%，**acceptable 冻结**。完整指标见 `doc/pox_dbi_acceptance_baseline.md`。
 
 ### 4) Excel Spread Simulator 前端
 工作簿 Sheet 顺序：**Guide → Model_Input → WebService → Model_Output → PFD**

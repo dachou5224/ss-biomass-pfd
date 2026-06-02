@@ -68,16 +68,17 @@ export type FullComputeResponse = {
     inci_slag_kg_h: number
     pox_gas_kg_h: number
     pox_ash_kg_h: number
-    rmsd_inci_primary_pct: number | null
-    rmsd_pox_primary_pct: number | null
     quench_t_out_c: number | null
     quench_h2o_added_kg_h: number | null
   }
+  inci_solid_routing: InciSolidRouting | null
   performance: {
     cold_gas_efficiency_pct: number | null
     cold_gas_efficiency_inci_pct: number | null
     cold_gas_efficiency_pox_pct: number | null
     carbon_conversion_pct: number | null
+    carbon_conversion_inci_pct: number | null
+    carbon_conversion_pox_pct: number | null
     h2_co_ratio_dry: number | null
   }
   compositions: {
@@ -100,18 +101,19 @@ export type FullComputeResponse = {
       wet_vol_pct: Record<string, number>
     }
   }
-  comparison: {
-    inci_wet: Array<Record<string, string | number | null>>
-    rgpox_wet: Array<Record<string, string | number | null>>
-  }
   tables: {
     feed_summary: Array<Record<string, string | number | null>>
-    unit_trace: Array<{
-      unit_name: string
-      status: string
-      notes: string
-      inlet_total_kg_h: number
-      outlet_total_kg_h: number
-    }>
   }
+}
+
+export type InciSolidRouting = {
+  mode: string | null
+  fly_ash_total_kg_h: number | null
+  fly_ash_to_slag_ratio: number | null
+  char_to_pox_kg_h: number
+  ash_to_pox_kg_h: number
+  char_to_slag_kg_h: number
+  ash_to_slag_kg_h: number
+  slag_to_u14_kg_h: number
+  overall_biomass_carbon_conversion_pct: number | null
 }

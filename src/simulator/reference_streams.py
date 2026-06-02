@@ -11,11 +11,54 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
-from .parameters import INCI_WET_MAJOR_KEYS, PATHS_CFG, PROJECT_ROOT
+from .parameters import INCI_WET_MAJOR_KEYS, PATHS_CFG, PROJECT_ROOT, load_json_config
 
 DEFAULT_INCI_STREAMS_CSV = PROJECT_ROOT / PATHS_CFG["inci_streams_csv"]
 DEFAULT_RGPOX_STREAMS_CSV = PROJECT_ROOT / PATHS_CFG["rgpox_streams_csv"]
 DEFAULT_DBI_MASS_BALANCE_CSV = PROJECT_ROOT / PATHS_CFG["dbi_mass_balance_csv"]
+DEFAULT_DBI_INCI_STREAM_TABLE_CSV = PROJECT_ROOT / "data/reference/dbi_inci_stream_table_case1.csv"
+
+
+def _parse_percentish(value: Any) -> Optional[float]:
+    if pd.isna(value):
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.endswith("%"):
+        text = text[:-1]
+    return float(text)
+
+
+def overall_biomass_carbon_conversion_from_boundary_streams(
+    *,
+    biomass_feed_kg_h: float,
+    biomass_moisture_wt_pct: float,
+    biomass_carbon_wt_pct_dry: float,
+    bottom_slag_kg_h: float,
+    bottom_slag_carbon_wt_pct_dry: float,
+    entrained_solid_kg_h: float,
+    entrained_solid_carbon_wt_pct_dry: float,
+) -> Dict[str, float]:
+    """Compute overall biomass carbon conversion from PFD/stream-table boundary solids."""
+    dry_biomass_kg_h = max(float(biomass_feed_kg_h), 0.0) * max(100.0 - float(biomass_moisture_wt_pct), 0.0) / 100.0
+    biomass_carbon_in_kg_h = dry_biomass_kg_h * max(float(biomass_carbon_wt_pct_dry), 0.0) / 100.0
+    bottom_slag_carbon_kg_h = max(float(bottom_slag_kg_h), 0.0) * max(float(bottom_slag_carbon_wt_pct_dry), 0.0) / 100.0
+    entrained_solid_carbon_kg_h = (
+        max(float(entrained_solid_kg_h), 0.0) * max(float(entrained_solid_carbon_wt_pct_dry), 0.0) / 100.0
+    )
+    unconverted_carbon_kg_h = bottom_slag_carbon_kg_h + entrained_solid_carbon_kg_h
+    conversion_pct = None
+    if biomass_carbon_in_kg_h > 0.0:
+        conversion_pct = 100.0 * (biomass_carbon_in_kg_h - unconverted_carbon_kg_h) / biomass_carbon_in_kg_h
+    return {
+        "biomass_dry_kg_h": dry_biomass_kg_h,
+        "biomass_carbon_in_kg_h": biomass_carbon_in_kg_h,
+        "bottom_slag_carbon_kg_h": bottom_slag_carbon_kg_h,
+        "entrained_solid_carbon_kg_h": entrained_solid_carbon_kg_h,
+        "unconverted_carbon_kg_h": unconverted_carbon_kg_h,
+        "overall_biomass_carbon_conversion_pct": conversion_pct,
+    }
 
 
 def wet_mol_pct_to_dry_full(wet_mol_pct: Dict[str, float]) -> Dict[str, float]:
@@ -148,16 +191,30 @@ def attach_rgpox_stream_to_expected(
     csv_path: Path | str | None = None,
 ) -> Dict[str, Any]:
     """将 CSV 中的 RGPOX 湿基表合并进 expected（本地 CSV 缺失时保留 JSON 内 pox_comp_wet）。"""
-    stream = load_rgpox_stream_reference(case_id, csv_path=csv_path)
-    if stream is None:
+    post = load_rgpox_stream_reference(case_id, csv_path=csv_path, stream_id="15PGR-2", basis="wet_mol_pct")
+    ante = load_rgpox_stream_reference(case_id, csv_path=csv_path, stream_id="15PGR-1", basis="wet_mol_pct")
+    if post is None and ante is None:
         return expected
     out = dict(expected)
-    out["pox_comp_wet_full"] = dict(stream["wet_mol_pct"])
-    out["pox_comp_dry_full"] = dict(stream["dry_full_mol_pct"])
-    wet_major = dict(stream["wet_major_mol_pct"])
-    out["pox_comp_wet"] = wet_major
-    out["pox_stream_meta"] = dict(stream["meta"])
+    if post is not None:
+        out["pox_comp_wet_full"] = dict(post["wet_mol_pct"])
+        out["pox_comp_dry_full"] = dict(post["dry_full_mol_pct"])
+        out["pox_comp_wet"] = dict(post["wet_major_mol_pct"])
+        out["pox_stream_meta"] = dict(post["meta"])
+        out["pox_gas_kg_h"] = float(post["meta"]["gas_flow_kg_h"])
+    if ante is not None:
+        out["pox_comp_wet_ante_full"] = dict(ante["wet_mol_pct"])
+        out["pox_comp_wet_ante"] = dict(ante["wet_major_mol_pct"])
+        out["pox_gibbs_stream_meta"] = dict(ante["meta"])
+        out["pox_gas_ante_kg_h"] = float(ante["meta"]["gas_flow_kg_h"])
     return out
+
+
+def expected_pox_gas_ante_kg_h(expected: Dict[str, Any]) -> float:
+    """DBI 15PGR-1 湿煤气目标 (kg/h)；优先 JSON/CSV 显式字段，禁止湿基反推。"""
+    if expected.get("pox_gas_ante_kg_h") is not None:
+        return float(expected["pox_gas_ante_kg_h"])
+    raise KeyError("expected 缺少 pox_gas_ante_kg_h（Unit 15 PDF 15PGR-1 湿煤气 7760 kg/h）")
 
 
 @lru_cache(maxsize=4)
@@ -166,6 +223,47 @@ def _load_dbi_mass_balance_csv(csv_path: str) -> pd.DataFrame:
     if not path.is_file():
         raise FileNotFoundError(f"DBI INCI 质量衡算表不存在: {path}")
     return pd.read_csv(path)
+
+
+@lru_cache(maxsize=4)
+def _load_dbi_inci_stream_table_csv(csv_path: str) -> pd.DataFrame:
+    path = Path(csv_path)
+    if not path.is_file():
+        raise FileNotFoundError(f"DBI INCI stream table 不存在: {path}")
+    return pd.read_csv(path)
+
+
+def load_dbi_inci_stream_value(
+    case_id: str,
+    *,
+    stream_id: str,
+    section: str,
+    property: str,
+    csv_path: Path | str | None = None,
+) -> Optional[Dict[str, Any]]:
+    """Read a single scalar value from the Unit 13 DBI stream table."""
+    path = Path(csv_path) if csv_path is not None else DEFAULT_DBI_INCI_STREAM_TABLE_CSV
+    if not path.is_file():
+        return None
+    df = _load_dbi_inci_stream_table_csv(str(path.resolve()))
+    mask = (
+        (df["case"] == case_id)
+        & (df["stream_id"] == stream_id)
+        & (df["section"] == section)
+        & (df["property"] == property)
+    )
+    subset = df.loc[mask]
+    if subset.empty:
+        return None
+    row0 = subset.iloc[0]
+    return {
+        "stream_id": stream_id,
+        "section": section,
+        "property": property,
+        "unit": str(row0["unit"]),
+        "value_raw": row0["value"],
+        "value": _parse_percentish(row0["value"]),
+    }
 
 
 def load_dbi_inci_mass_balance(
@@ -244,3 +342,75 @@ def load_dbi_inci_mass_balance(
             + (next((r["mass_kg_h"] for r in net_inlet if r["stream_id"] == "13OG2-1"), 0.0) or 0.0)
         ),
     }
+
+
+def attach_dbi_inci_boundary_to_expected(
+    expected: Dict[str, Any],
+    case_id: str,
+    *,
+    biomass_feed_kg_h: float | None = None,
+    stream_table_csv: Path | str | None = None,
+) -> Dict[str, Any]:
+    """Attach DBI INCI boundary-carbon basis derived from PFD/stream-table data when available."""
+    if biomass_feed_kg_h is None:
+        return expected
+
+    moisture = load_dbi_inci_stream_value(
+        case_id,
+        stream_id="13C-4",
+        section="solid_phase",
+        property="moisture",
+        csv_path=stream_table_csv,
+    )
+    biomass_carbon = load_dbi_inci_stream_value(
+        case_id,
+        stream_id="13C-4",
+        section="solid_phase",
+        property="carbon",
+        csv_path=stream_table_csv,
+    )
+    slag_carbon = load_dbi_inci_stream_value(
+        case_id,
+        stream_id="13LBS-1",
+        section="solid_phase",
+        property="carbon",
+        csv_path=stream_table_csv,
+    )
+    if moisture is None or biomass_carbon is None or slag_carbon is None:
+        return expected
+
+    try:
+        rgpox_cfg = dict(load_json_config("dbi_rgpox_inlet").get(case_id, {})).get("15PGI-1", {})
+    except FileNotFoundError:
+        return expected
+    solid_kg_h = rgpox_cfg.get("solid_kg_h")
+    solid_carbon_wt_pct_dry = rgpox_cfg.get("solid_dust_carbon_wt_pct_dry")
+    if solid_kg_h is None or solid_carbon_wt_pct_dry is None:
+        return expected
+
+    basis = overall_biomass_carbon_conversion_from_boundary_streams(
+        biomass_feed_kg_h=biomass_feed_kg_h,
+        biomass_moisture_wt_pct=float(moisture["value"] or 0.0),
+        biomass_carbon_wt_pct_dry=float(biomass_carbon["value"] or 0.0),
+        bottom_slag_kg_h=float(expected.get("inci_slag_kg_h", 0.0)),
+        bottom_slag_carbon_wt_pct_dry=float(slag_carbon["value"] or 0.0),
+        entrained_solid_kg_h=float(solid_kg_h),
+        entrained_solid_carbon_wt_pct_dry=float(solid_carbon_wt_pct_dry),
+    )
+    out = dict(expected)
+    out["dbi_inci_boundary_basis"] = {
+        **basis,
+        "biomass_feed_kg_h": float(biomass_feed_kg_h),
+        "biomass_moisture_wt_pct": float(moisture["value"] or 0.0),
+        "biomass_carbon_wt_pct_dry": float(biomass_carbon["value"] or 0.0),
+        "bottom_slag_total_kg_h": float(expected.get("inci_slag_kg_h", 0.0)),
+        "bottom_slag_carbon_wt_pct_dry": float(slag_carbon["value"] or 0.0),
+        "entrained_solid_total_kg_h": float(solid_kg_h),
+        "entrained_solid_carbon_wt_pct_dry": float(solid_carbon_wt_pct_dry),
+        "basis_streams": {
+            "biomass_feed": "13C-4",
+            "bottom_slag": "13LBS-1",
+            "entrained_solid": "15PGI-1",
+        },
+    }
+    return out

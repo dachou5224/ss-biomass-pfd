@@ -8,18 +8,18 @@ from typing import Any, Dict, Mapping
 import pandas as pd
 
 from .backend import run_fixed_temperature_simulation
-from .data import REFERENCE_CASES
 from .web_ui import (
     O2IN_COMPOSITION_KEYS,
     PFD_FEED_LINES,
     build_chem_df_from_inputs,
     build_feed_df_from_inputs,
     build_specs_df_from_inputs,
+    carbon_conversion_inci_pct,
     carbon_conversion_pct,
+    carbon_conversion_pox_pct,
     cold_gas_efficiency_inci_pct,
     cold_gas_efficiency_pox_pct,
     cold_gas_efficiency_pct,
-    comparison_wet_df,
     default_inputs,
     h2_co_ratio_dry,
     pfd_feed_summary_df,
@@ -210,18 +210,6 @@ def build_full_compute_response(payload: Mapping[str, Any]) -> Dict[str, Any]:
         build_chem_df_from_inputs(inputs),
     )
 
-    comparison = {"inci_wet": [], "rgpox_wet": []}
-    if result.matched_case:
-        expected = REFERENCE_CASES[result.matched_case]["expected"]
-        inci_wet = dict(expected.get("inci_comp_wet", expected["inci_comp"]))
-        inci_wet.setdefault("H2O", None)
-        pox_wet = dict(expected.get("pox_comp_wet", expected["pox_comp"]))
-        pox_wet.setdefault("H2O", None)
-        comparison = {
-            "inci_wet": _records(comparison_wet_df(inci_wet, result.inci_comp_wet_vol_pct)),
-            "rgpox_wet": _records(comparison_wet_df(pox_wet, result.pox_comp_wet_vol_pct)),
-        }
-
     return _json_safe({
         "status": "ok" if checks.o2in_is_100_pct and checks.negative_feed_count == 0 else "check",
         "checks": asdict(checks),
@@ -236,17 +224,33 @@ def build_full_compute_response(payload: Mapping[str, Any]) -> Dict[str, Any]:
             "inci_pgi_total_kg_h": result.inci_pgi_total_kg_h,
             "inci_slag_kg_h": result.inci_slag_kg_h,
             "pox_gas_kg_h": result.pox_gas_kg_h,
+            "pox_gas_ante_kg_h": result.pox_gas_ante_kg_h,
             "pox_ash_kg_h": result.pox_ash_kg_h,
-            "rmsd_inci_primary_pct": result.rmsd_inci_primary_pct,
-            "rmsd_pox_primary_pct": result.rmsd_pox_primary_pct,
             "quench_t_out_c": result.quench_t_out_c,
             "quench_h2o_added_kg_h": result.quench_h2o_added_kg_h,
         },
+        "inci_solid_routing": (
+            None
+            if result.inci_mass_audit is None
+            else {
+                "mode": result.inci_mass_audit.solid_routing_mode,
+                "fly_ash_total_kg_h": result.inci_mass_audit.fly_ash_total_kg_h,
+                "fly_ash_to_slag_ratio": result.inci_mass_audit.fly_ash_to_slag_ratio,
+                "char_to_pox_kg_h": result.inci_mass_audit.char_to_pox_kg_h,
+                "ash_to_pox_kg_h": result.inci_mass_audit.ash_to_pox_kg_h,
+                "char_to_slag_kg_h": result.inci_mass_audit.char_to_slag_kg_h,
+                "ash_to_slag_kg_h": result.inci_mass_audit.ash_to_slag_kg_h,
+                "slag_to_u14_kg_h": result.inci_mass_audit.slag_to_u14_kg_h,
+                "overall_biomass_carbon_conversion_pct": result.inci_mass_audit.overall_biomass_carbon_conversion_pct,
+            }
+        ),
         "performance": {
             "cold_gas_efficiency_pct": cold_gas_efficiency_pct(inputs, result),
             "cold_gas_efficiency_inci_pct": cold_gas_efficiency_inci_pct(inputs, result),
             "cold_gas_efficiency_pox_pct": cold_gas_efficiency_pox_pct(inputs, result),
             "carbon_conversion_pct": carbon_conversion_pct(result),
+            "carbon_conversion_inci_pct": carbon_conversion_inci_pct(result),
+            "carbon_conversion_pox_pct": carbon_conversion_pox_pct(result),
             "h2_co_ratio_dry": h2_co_ratio_dry(result),
         },
         "compositions": {
@@ -269,10 +273,8 @@ def build_full_compute_response(payload: Mapping[str, Any]) -> Dict[str, Any]:
                 "wet_vol_pct": result.pox_comp_wet_full_vol_pct,
             },
         },
-        "comparison": comparison,
         "tables": {
             "feed_summary": _records(pfd_feed_summary_df(inputs)),
-            "unit_trace": [asdict(row) for row in result.unit_trace],
         },
     })
 

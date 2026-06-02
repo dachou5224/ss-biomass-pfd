@@ -4,7 +4,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from simulator.backend import run_fixed_temperature_simulation
-from simulator.data import build_chem_df, build_feed_df, build_specs_df
+from simulator.data import REFERENCE_CASES, build_chem_df, build_feed_df, build_specs_df
 from simulator.parameters import RGPOX_T_C, dbi_rgpox_case1_inlet
 from simulator.rgpox import (
     RGPOX_EQUATION_BASIS,
@@ -33,7 +33,10 @@ def test_rgpox_temperature_locked_to_dbi_1400c():
 
 @requires_dbi_rgpox_inlet_json
 def test_rgpox_entrained_solid_matches_dbi_case1():
-    ent = resolve_entrained_solid(case_id="Case-1", char_to_pox_kg_h=20.0, ash_to_pox_kg_h=120.0)
+    basis = REFERENCE_CASES["Case-1"]["expected"]["dbi_inci_boundary_basis"]
+    char_to_pox = basis["entrained_solid_carbon_kg_h"]
+    ash_to_pox = basis["entrained_solid_total_kg_h"] - char_to_pox
+    ent = resolve_entrained_solid(case_id="Case-1", char_to_pox_kg_h=char_to_pox, ash_to_pox_kg_h=ash_to_pox)
     dbi = dbi_rgpox_case1_inlet()["15PGI-1"]
     assert abs(ent.total_kg_h - dbi["solid_kg_h"]) < 0.05
     assert abs(ent.minerals_kg_h - dbi["solid_kg_h"] * 0.2663) < 0.5
@@ -56,7 +59,7 @@ def test_rgpox_volatile_pyrolysis_adds_elements_to_gibbs():
     assert vol.elemental_mol_h["H"] > 0.0
     assert vol.elemental_mol_h["O"] > 0.0
 
-    inci_flow = {"CO": 100.0, "H2": 80.0, "CO2": 20.0, "CH4": 5.0, "H2O": 50.0}
+    inci_flow = {"CO": 100.0, "H2": 80.0, "CO2": 20.0, "CH4": 5.0, "H2O": 800.0}
     inci_flow.update({"NH3": 0.5, "H2S": 0.2, "COS": 0.01})
     ent = build_entrained_solid(10.0, carbon_wt_pct_dry=73.37, minerals_wt_pct_dry=26.63)
     bundle = build_rgpox_inlet_bundle(
@@ -69,9 +72,13 @@ def test_rgpox_volatile_pyrolysis_adds_elements_to_gibbs():
         o2_ar_imp_mol_h=0.5,
     )
     stage = solve_rgpox_gibbs_equilibrium(bundle, p_bar=15.0, char_conversion=1.0)
-    assert stage.pox_ash_kg_h == compute_pox_ash_kg_h(ent, char_conversion=1.0)
+    assert stage.pox_ash_kg_h == compute_pox_ash_kg_h(ent, char_conversion=1.0, char_unreacted_mol_h=stage.char_unreacted_mol_h)
     assert abs(stage.pox_ash_kg_h - ent.minerals_kg_h) < 0.01
-    assert bundle.elemental_feed_mol_h["C"] > inci_flow.get("CO", 0.0)
+    assert bundle.char_gasification is not None
+    assert (
+        bundle.char_gasification.char_reacted_co2_replace_mol_h > 0.0
+        or bundle.char_gasification.char_reacted_steam_mol_h > 0.0
+    )
 
 
 def test_rgpox_equation_basis_in_thermo_trace():

@@ -57,7 +57,10 @@
     "expected": {
       "inci_top_kg_h": 6899.0,
       "inci_slag_kg_h": 122.0,
-      "pox_gas_kg_h": 7787.0,
+      "pox_gas_ante_kg_h": 7760.0,
+      "pox_gas_ante_dry_kg_h": 6039.0,
+      "pox_gas_kg_h": 8843.0,
+      "pox_gas_dry_kg_h": 5990.0,
       "pox_ash_kg_h": 73.33,
       "inci_comp": {
         "CO": 32.47,
@@ -66,10 +69,10 @@
         "CH4": 4.56
       },
       "pox_comp": {
-        "CO": 46.23,
-        "H2": 28.37,
-        "CO2": 21.79,
-        "CH4": 0.08
+        "CO": 46.11,
+        "H2": 28.36,
+        "CO2": 21.80,
+        "CH4": 0.14
       },
       "pox_comp_wet": {
         "CO": 28.11,

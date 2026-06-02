@@ -18,7 +18,7 @@
 | 文件 | 内容 |
 |------|------|
 | `model_parameters.json` | 反应器、化学设置、Tar/平衡/Gibbs 数值、物种列表、路径等 |
-| `reference_cases.json` | Case-1/2/3 进料与对标 expected |
+| `reference_cases.json` | Case-1/2/3 进料与对标 expected（POX：`pox_gas_ante_kg_h` 7760 / `pox_gas_kg_h` 8843，Unit 15 PDF p2） |
 | `biomass_samples.json` | 8# / 11# 生物质分析 |
 | `dbi_inlet.json` | DBI Case-1 边界进料（inlet 对标） |
 | `thermo_shomate.json` | Shomate 系数与固体碳近似 |

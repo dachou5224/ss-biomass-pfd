@@ -60,8 +60,8 @@ def test_temperature_approach_defaults_use_restricted_equilibrium():
     res = run_fixed_temperature_simulation(feed_df, specs_df, chem_df)
 
     inci_notes = [u.notes for u in res.unit_trace if u.unit_name == "INCI(RGibbs)"][0]
-    assert "TA(WGS,Meth)=(40.0,350.0)C" in inci_notes
-    assert "ETA(WGS,Meth)=(1.00,1.00)" in inci_notes
+    assert "TA(WGS,Meth)=(100.0,425.0)C" in inci_notes
+    assert "ETA(WGS,Meth)=(0.85,0.70)" in inci_notes
     assert res.inci_comp_wet_vol_pct["CH4"] < 6.5
     assert res.rmsd_inci_wet_pct is None  # Case-2 无湿基 CSV
     assert res.rmsd_inci_pct is not None

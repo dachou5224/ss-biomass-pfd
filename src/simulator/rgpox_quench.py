@@ -38,6 +38,7 @@ def _dry_mol_h(flow_mol_h: Dict[str, float], species: Iterable[str]) -> float:
 
 
 def _resolve_outlet_t_c(cfg: Dict[str, object], p_mpa: float) -> float:
+    """15PGR-2 出口 T；优先显式 outlet_t_c，其次才用 outlet_h2o_wet_pct 反求（标定捷径）。"""
     if cfg.get("outlet_t_c") is not None:
         return float(cfg["outlet_t_c"])
     target = cfg.get("outlet_h2o_wet_pct")
@@ -48,7 +49,7 @@ def _resolve_outlet_t_c(cfg: Dict[str, object], p_mpa: float) -> float:
             T_bracket_low_c=float(cfg.get("T_bracket_low_c", 100.0)),
             T_bracket_high_c=float(cfg.get("T_bracket_high_c", 200.0)),
         )
-    raise ValueError("quench 配置需 outlet_t_c 或 outlet_h2o_wet_pct")
+    raise ValueError("quench 配置需 outlet_t_c（推荐，T+P→Psat/P）或 outlet_h2o_wet_pct（反求 T）")
 
 
 def apply_rgpox_quench(
@@ -62,9 +63,13 @@ def apply_rgpox_quench(
     """
     将 15PGR-1 反应区物流经急冷变为 15PGR-2 湿煤气（无化学反应）。
 
+    气相水量（水气比）由 **15PGR-2 出口 T、绝压 P** 下饱和蒸气压决定：
+    y_H2O = P_sat(T_out) / P_abs → n_H2O,gas = n_dry · y / (1−y)。
+    默认 ``outlet_t_c`` + ``p_total_mpa_abs`` 正向计算；``outlet_h2o_wet_pct`` 仅作反求 T 的标定捷径。
+
     mode:
-    - ``saturation_temperature``: 指定出口 T（或 DBI 目标 H2O%），组成按 P_sat/P 饱和
-    - ``heat_balance``: 湿煤气热平衡求 T_out（gasifier-model 思路，含进口 H2O 显热）
+    - ``saturation_temperature``: outlet_t_c + P → Psat/P → 气相 H2O
+    - ``heat_balance``: 热平衡求 T_out（须与 Psat/P 联立，否则 y 与 T 不一致）
     """
     cfg = dict(cfg if cfg is not None else QUENCH_CFG)
     mode = str(cfg.get("mode", "saturation_temperature"))

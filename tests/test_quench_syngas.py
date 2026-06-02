@@ -4,6 +4,7 @@ import os
 import sys
 
 import numpy as np
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -14,8 +15,10 @@ from simulator.quench_syngas import (
     DEFAULT_COOLING_WATER_MASS_FLOW_KG_H,
     evaluate_quench_syngas,
     liquid_water_enthalpy_approx_cp,
+    saturation_pressure_water_mpa,
     solve_outlet_t_for_wet_h2o_pct,
     solve_wet_syngas_temperature_after_quench,
+    wet_h2o_mole_fraction,
 )
 from simulator.rgpox_quench import apply_rgpox_quench
 
@@ -62,7 +65,29 @@ def test_outlet_t_for_dbi_h2o_case1():
     assert 159.0 < t < 162.0
 
 
-def test_rgpox_quench_dry_species_unchanged():
+def test_rgpox_quench_saturation_from_outlet_t_and_pressure():
+    """默认路径：outlet_t_c + P_abs → y=Psat/P → 气相 H2O。"""
+    flow = {"CO": 100.0, "H2": 80.0, "CO2": 50.0, "CH4": 1.0, "H2O": 40.0, "N2": 10.0}
+    t_out = 160.384
+    p_abs = 1.5
+    cfg = {
+        "mode": "saturation_temperature",
+        "p_total_mpa_abs": p_abs,
+        "outlet_t_c": t_out,
+        "cp_gas_kj_nm3_c": 2.31,
+        "T_water_in_celsius": 42.0,
+        "cooling_water_mass_flow_kg_h": 91855.0,
+    }
+    res = apply_rgpox_quench(flow, species=list(flow.keys()) + ["Ar", "H2S"], cfg=cfg)
+    y_exp = wet_h2o_mole_fraction(t_out, p_abs)
+    assert res.t_out_c == pytest.approx(t_out, abs=0.01)
+    assert res.y_h2o == pytest.approx(y_exp, rel=1e-6)
+    assert res.y_h2o == pytest.approx(saturation_pressure_water_mpa(t_out) / p_abs, rel=1e-6)
+    assert abs(res.y_h2o * 100 - 41.661) < 0.05
+
+
+def test_rgpox_quench_legacy_h2o_pct_back_solve_t():
+    """标定捷径：outlet_h2o_wet_pct 反求 T（非默认主路径）。"""
     flow = {"CO": 100.0, "H2": 80.0, "CO2": 50.0, "CH4": 1.0, "H2O": 40.0, "N2": 10.0}
     cfg = {
         "mode": "saturation_temperature",
@@ -79,6 +104,22 @@ def test_rgpox_quench_dry_species_unchanged():
     assert abs(res.y_h2o * 100 - 39.033) < 0.05
 
 
+def test_rgpox_quench_dry_species_unchanged():
+    flow = {"CO": 100.0, "H2": 80.0, "CO2": 50.0, "CH4": 1.0, "H2O": 40.0, "N2": 10.0}
+    cfg = {
+        "mode": "saturation_temperature",
+        "p_total_mpa_abs": 1.5,
+        "outlet_t_c": 160.384,
+        "cp_gas_kj_nm3_c": 2.31,
+        "T_water_in_celsius": 42.0,
+        "cooling_water_mass_flow_kg_h": 91855.0,
+    }
+    res = apply_rgpox_quench(flow, species=list(flow.keys()) + ["Ar", "H2S"], cfg=cfg)
+    for sp in ("CO", "H2", "CO2", "CH4", "N2"):
+        assert res.flow_mol_h_post[sp] == flow[sp]
+    assert res.flow_mol_h_post["H2O"] > flow["H2O"]
+
+
 def test_rgpox_validation_post_quench_wet_rmsd_case1():
     limit = float(model_parameters()["numerical"]["rgpox_validation_wet_post_quench_rmsd_limit_case1"])
     res = run_fixed_temperature_simulation(
@@ -91,4 +132,4 @@ def test_rgpox_validation_post_quench_wet_rmsd_case1():
     assert res.rmsd_pox_wet_pct is not None
     assert res.rmsd_pox_wet_pct < limit
     wet = res.pox_comp_wet_vol_pct
-    assert abs(wet["H2O"] - 39.033) < 0.15
+    assert wet["H2O"] == pytest.approx(41.661, abs=0.05)

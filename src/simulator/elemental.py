@@ -9,10 +9,13 @@ from .parameters import ATOMIC_WEIGHT, DEFAULT_BIOMASS_SAMPLE_FALLBACK, load_jso
 BIOMASS_ANALYSIS_CHEM_KEYS: Dict[str, str] = {
     "Biomass mad wt%": "mad_pct",
     "Biomass ad wt% (dry)": "ad_pct",
+    "Biomass VM Dry wt%": "vd_pct_dry",
+    "Biomass FC Dry wt%": "fcd_pct_dry",
     "Biomass C wt% (dry)": "cd_pct_dry",
     "Biomass H wt% (dry)": "hd_pct_dry",
     "Biomass N wt% (dry)": "nd_pct_dry",
     "Biomass S wt% (dry)": "sd_pct_dry",
+    "Biomass Cl wt% (dry)": "cl_pct_dry",
     "Biomass O wt% (dry)": "od_pct_dry",
 }
 
@@ -22,10 +25,13 @@ class BiomassSample:
     sample_id: str
     mad_pct: float
     ad_pct: float
+    vd_pct_dry: float
+    fcd_pct_dry: float
     cd_pct_dry: float
     hd_pct_dry: float
     nd_pct_dry: float
     sd_pct_dry: float
+    cl_pct_dry: float
     od_pct_dry: float
 
 
@@ -69,6 +75,7 @@ def biomass_to_elemental_moles_from_sample(sample: BiomassSample, biomass_kg_h: 
     oxygen_kg_h = dry_mass * sample.od_pct_dry / 100.0
     nitrogen_kg_h = dry_mass * sample.nd_pct_dry / 100.0
     sulfur_kg_h = dry_mass * sample.sd_pct_dry / 100.0
+    chlorine_kg_h = dry_mass * sample.cl_pct_dry / 100.0
     ash_kg_h = dry_mass * sample.ad_pct / 100.0
 
     return {
@@ -77,6 +84,7 @@ def biomass_to_elemental_moles_from_sample(sample: BiomassSample, biomass_kg_h: 
         "O": _kgph_to_molph(oxygen_kg_h, ATOMIC_WEIGHT["O"]),
         "N": _kgph_to_molph(nitrogen_kg_h, ATOMIC_WEIGHT["N"]),
         "S": _kgph_to_molph(sulfur_kg_h, ATOMIC_WEIGHT["S"]),
+        "Cl": _kgph_to_molph(chlorine_kg_h, ATOMIC_WEIGHT["Cl"]),
         "Ar": 0.0,
         "Ash_kg_h": ash_kg_h,
     }
@@ -89,3 +97,13 @@ def biomass_to_elemental_moles(sample_id: str, biomass_kg_h: float) -> Dict[str,
 
 def biomass_to_elemental_moles_for_chem(chem: Mapping[str, str], biomass_kg_h: float) -> Dict[str, float]:
     return biomass_to_elemental_moles_from_sample(biomass_sample_from_chem(chem), biomass_kg_h)
+
+
+def biomass_vm_dry_pct(chem: Mapping[str, str]) -> float:
+    """干燥基挥发分 VM (wt%)：随 Sample 模板，可被 Chemistry 表覆盖。"""
+    return biomass_sample_from_chem(chem).vd_pct_dry
+
+
+def biomass_fc_dry_pct(chem: Mapping[str, str]) -> float:
+    """干燥基固定碳 FC (wt%)：随 Sample 模板，可被 Chemistry 表覆盖。"""
+    return biomass_sample_from_chem(chem).fcd_pct_dry

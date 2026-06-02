@@ -53,6 +53,7 @@ class MassStreamRow:
 class InciMassAudit:
     feed_stream_mass_kg_h: float
     feed_element_mass_kg_h: float
+    biomass_carbon_in_kg_h: float
     gas_mass_kg_h: float
     bottom_solids_kg_h: float
     slag_to_u14_kg_h: float
@@ -74,6 +75,14 @@ class InciMassAudit:
     dbi_slag_mass_kg_h: float | None = None
     dbi_h2o_wet_pct: float | None = None
     h2o_wet_pct_model: float = 0.0
+    overall_biomass_carbon_conversion_pct: float | None = None
+    solid_routing_mode: str | None = None
+    fly_ash_total_kg_h: float | None = None
+    fly_ash_to_slag_ratio: float | None = None
+    char_to_slag_kg_h: float = 0.0
+    ash_to_slag_kg_h: float = 0.0
+    n2_makeup_mol_h: float = 0.0
+    n2_makeup_kg_h: float = 0.0
 
     @property
     def feed_mass_kg_h(self) -> float:
@@ -113,6 +122,7 @@ class SimulationResult:
     inci_pgi_total_kg_h: float
     inci_slag_kg_h: float
     pox_gas_kg_h: float
+    pox_gas_ante_kg_h: float
     pox_ash_kg_h: float
     inci_comp_dry_vol_pct: Dict[str, float]
     pox_comp_dry_vol_pct: Dict[str, float]
@@ -143,3 +153,4 @@ class SimulationResult:
     inci_mass_audit: InciMassAudit | None
     rgpox_inlet_audit: "RgpoxInletAudit | None"
     matched_case: str | None
+    inci_n2_makeup_mol_h: float = 0.0

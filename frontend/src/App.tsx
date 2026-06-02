@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { fetchInputTemplate, runFullSimulation } from './api'
+import { chemistryFieldMeta, splitChemistryRows } from './chemistryFields'
 import type {
   BootstrapResponse,
   ChemistryRow,
@@ -10,7 +11,7 @@ import type {
 import './App.css'
 
 const CASE_OPTIONS = ['Case-1', 'Case-2', 'Case-3']
-const COMPOSITION_ORDER = ['H2', 'CO', 'CO2', 'CH4', 'H2O', 'N2', 'Ar', 'H2S', 'NH3', 'COS']
+const COMPOSITION_ORDER = ['H2', 'CO', 'CO2', 'CH4', 'H2O', 'N2', 'Ar', 'H2S', 'NH3', 'COS', 'HCl']
 
 const FEED_GROUPS = [
   {
@@ -48,6 +49,58 @@ function sortCompositionEntries(composition: Record<string, number> | undefined)
     })
 }
 
+function compositionKeys(...compositions: Array<Record<string, number> | undefined>) {
+  return Array.from(new Set(compositions.flatMap((composition) => sortCompositionEntries(composition).map(([key]) => key))))
+}
+
+function uniqueValues(rows: Array<Record<string, string>>, field: string) {
+  return Array.from(new Set(rows.map((row) => row[field]).filter(Boolean)))
+}
+
+function effectiveGasContent(composition: Record<string, number> | undefined) {
+  return (composition?.H2 ?? 0) + (composition?.CO ?? 0)
+}
+
+function renderChemistryField(
+  row: ChemistryRow,
+  onChange: (field: string, value: string) => void,
+) {
+  const meta = chemistryFieldMeta(row.Field)
+  const value = String(row.Value ?? '')
+
+  return (
+    <label key={row.Field} className="chemistry-field">
+      <span>{meta.label}</span>
+      {meta.kind === 'select' ? (
+        <select value={value} onChange={(event) => onChange(row.Field, event.target.value)}>
+          {(meta.options ?? []).map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+      ) : meta.kind === 'number' ? (
+        <input
+          type="number"
+          step={meta.step ?? 1}
+          min={meta.min}
+          max={meta.max}
+          value={value}
+          onChange={(event) => onChange(row.Field, event.target.value)}
+        />
+      ) : (
+        <input
+          type="text"
+          value={value}
+          placeholder="留空=自动"
+          onChange={(event) => onChange(row.Field, event.target.value)}
+        />
+      )}
+      <small className="chemistry-field-hint">{meta.hint}</small>
+    </label>
+  )
+}
+
 function App() {
   const [selectedCase, setSelectedCase] = useState('Case-1')
   const [systemPBar, setSystemPBar] = useState(15)
@@ -71,6 +124,10 @@ function App() {
   const totalFeed = useMemo(
     () => feedRows.reduce((sum, row) => sum + row.MassFlow_kg_h, 0),
     [feedRows],
+  )
+  const { standard: standardChemistryRows, advancedInciSolid: advancedInciSolidRows } = useMemo(
+    () => splitChemistryRows(chemistryRows),
+    [chemistryRows],
   )
 
   const loadTemplate = useCallback(async (caseId: string) => {
@@ -151,6 +208,18 @@ function App() {
           wetStreamId: result.compositions.inci.wet_stream_id,
           dryVolPct: result.compositions.inci.dry_vol_pct,
           wetVolPct: result.compositions.inci.wet_vol_pct,
+          streamRows: [
+            { label: '状态基准', unit: '—', dry: '干基', wet: '湿基' },
+            { label: '主产气流量', unit: 'kg/h', dry: '—', wet: formatNumber(result.result_summary.inci_top_kg_h, 0) },
+            { label: 'Tar', unit: 'kg/h', dry: formatNumber(result.result_summary.inci_tar_kg_h, 1), wet: '—' },
+            { label: 'INCI 渣', unit: 'kg/h', dry: formatNumber(result.result_summary.inci_slag_kg_h, 0), wet: '—' },
+            ...compositionKeys(result.compositions.inci.dry_vol_pct, result.compositions.inci.wet_vol_pct).map((species) => ({
+              label: species,
+              unit: 'vol%',
+              dry: formatNumber(result.compositions.inci.dry_vol_pct[species], 3),
+              wet: formatNumber(result.compositions.inci.wet_vol_pct[species], 3),
+            })),
+          ],
           metrics: [
             {
               label: '13PGI-1 气体',
@@ -175,6 +244,18 @@ function App() {
           wetStreamId: result.compositions.pox.wet_stream_id,
           dryVolPct: result.compositions.pox.dry_vol_pct,
           wetVolPct: result.compositions.pox.wet_vol_pct,
+          streamRows: [
+            { label: '状态基准', unit: '—', dry: '干基', wet: '湿基' },
+            { label: '反应后主气', unit: 'kg/h', dry: '—', wet: formatNumber(result.result_summary.pox_gas_kg_h, 0) },
+            { label: 'POX 灰渣', unit: 'kg/h', dry: formatNumber(result.result_summary.pox_ash_kg_h, 0), wet: '—' },
+            { label: 'Quench 出口温度', unit: '°C', dry: '—', wet: formatNumber(result.result_summary.quench_t_out_c, 1) },
+            ...compositionKeys(result.compositions.pox.dry_vol_pct, result.compositions.pox.wet_vol_pct).map((species) => ({
+              label: species,
+              unit: 'vol%',
+              dry: formatNumber(result.compositions.pox.dry_vol_pct[species], 3),
+              wet: formatNumber(result.compositions.pox.wet_vol_pct[species], 3),
+            })),
+          ],
           metrics: [
             {
               label: '15PGR-2 气体',
@@ -189,6 +270,134 @@ function App() {
               value: `${formatNumber(result.result_summary.quench_t_out_c, 1)} °C`,
             },
           ],
+        },
+      ]
+    : []
+
+  const feedStreamSections = result
+    ? uniqueValues(
+        result.tables.feed_summary.map((row) =>
+          Object.fromEntries(Object.entries(row).map(([key, value]) => [key, String(value ?? '')])),
+        ),
+        '工段',
+      ).map((sectionName) => {
+        const rows = result.tables.feed_summary
+          .map((row) => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, String(value ?? '')])))
+          .filter((row) => row['工段'] === sectionName)
+        return {
+          key: sectionName,
+          title: sectionName,
+          streamIds: rows.map((row) => row.PFD),
+          streamRows: [
+            {
+              label: '进料项',
+              unit: '—',
+              values: rows.map((row) => row['进料项']),
+            },
+            {
+              label: '模型 Stream',
+              unit: '—',
+              values: rows.map((row) => row['模型 Stream']),
+            },
+            {
+              label: '质量流量',
+              unit: 'kg/h',
+              values: rows.map((row) => row['kg/h']),
+            },
+            {
+              label: '温度',
+              unit: '°C',
+              values: rows.map((row) => row['°C']),
+            },
+            {
+              label: '压力',
+              unit: 'bar',
+              values: rows.map((row) => row['bar']),
+            },
+          ],
+        }
+      })
+    : []
+
+  const keyMetricSections = result
+    ? [
+        {
+          key: 'inci',
+          title: 'INCI 关键指标',
+          subtitle: '对应 INCI 炉出口与 13PGI-1 物流。',
+          metrics: [
+            {
+              label: '碳转化率',
+              value: `${formatNumber(result.performance.carbon_conversion_inci_pct, 1)} %`,
+            },
+            {
+              label: '冷煤气效率',
+              value: `${formatNumber(result.performance.cold_gas_efficiency_inci_pct, 1)} %`,
+            },
+            {
+              label: '有效气含量',
+              value: `${formatNumber(effectiveGasContent(result.compositions.inci.dry_vol_pct), 2)} %`,
+            },
+          ],
+        },
+        {
+          key: 'pox',
+          title: 'POX 关键指标',
+          subtitle: '对应 POX 段出口与 15PGR-1 / 15PGR-2 物流。',
+          metrics: [
+            {
+              label: '碳转化率',
+              value: `${formatNumber(result.performance.carbon_conversion_pox_pct, 1)} %`,
+            },
+            {
+              label: '冷煤气效率',
+              value: `${formatNumber(result.performance.cold_gas_efficiency_pox_pct, 1)} %`,
+            },
+            {
+              label: '有效气含量',
+              value: `${formatNumber(effectiveGasContent(result.compositions.pox.dry_vol_pct), 2)} %`,
+            },
+          ],
+        },
+      ]
+    : []
+
+  const solidRouting = result?.inci_solid_routing ?? null
+  const entrainedSolidKgH =
+    solidRouting !== null
+      ? solidRouting.fly_ash_total_kg_h ??
+        solidRouting.char_to_pox_kg_h + solidRouting.ash_to_pox_kg_h
+      : null
+
+  const solidRoutingMetrics = solidRouting
+    ? [
+        {
+          label: '路由模式',
+          value: solidRouting.mode ?? '—',
+        },
+        {
+          label: '灰渣比（飞灰/底渣）',
+          value: formatNumber(solidRouting.fly_ash_to_slag_ratio, 3),
+        },
+        {
+          label: '飞灰总量（夹带）',
+          value: `${formatNumber(entrainedSolidKgH, 1)} kg/h`,
+        },
+        {
+          label: 'Char → POX',
+          value: `${formatNumber(solidRouting.char_to_pox_kg_h, 1)} kg/h`,
+        },
+        {
+          label: 'Ash → POX',
+          value: `${formatNumber(solidRouting.ash_to_pox_kg_h, 1)} kg/h`,
+        },
+        {
+          label: '13LBS-1 底渣',
+          value: `${formatNumber(solidRouting.slag_to_u14_kg_h, 0)} kg/h`,
+        },
+        {
+          label: '整体碳转化率',
+          value: `${formatNumber(solidRouting.overall_biomass_carbon_conversion_pct, 2)} %`,
         },
       ]
     : []
@@ -229,8 +438,8 @@ function App() {
         ? `O2IN 当前合计 ${formatNumber(o2Sum, 2)}%，建议先调到 100% 左右再求解。`
         : result
           ? result.result_summary.matched_case
-            ? `已完成 ${result.result_summary.matched_case} 求解，对标与组成表已刷新。`
-            : '自定义工况已求解；结果有效，但不参与 Case-1/2/3 对标。'
+            ? `已完成 ${result.result_summary.matched_case} 求解，结果表已刷新。`
+            : '自定义工况已求解；结果有效。'
           : '模板已载入。调整左侧输入后，点击“运行求解并刷新结果”查看结果。'
 
   return (
@@ -272,7 +481,7 @@ function App() {
           </span>
         </article>
         <article className="overview-card">
-          <span className="label">对标工况</span>
+          <span className="label">工况来源</span>
           <strong>{result?.result_summary.matched_case ?? '未求解 / 自定义'}</strong>
           <span className="meta">自定义工况不当作 warning</span>
         </article>
@@ -409,22 +618,31 @@ function App() {
             </div>
           </section>
 
-          <details className="section-card details-card">
-            <summary>扩展物性 / 样品 / 调参</summary>
+          <details className="section-card details-card" open>
+            <summary>化学调参（常规）</summary>
             <p className="details-copy">
-              当前直接映射后端 chemistry 表。这样前端不依赖 Excel 布局，也不必复制后端计算逻辑。
+              TA 趋近度、WGS/甲烷化 ΔT 等常规 chemistry 字段，直接映射后端计算表。
             </p>
             <div className="chemistry-grid">
-              {chemistryRows.map((row) => (
-                <label key={row.Field}>
-                  <span>{row.Field}</span>
-                  <input
-                    type="text"
-                    value={String(row.Value ?? '')}
-                    onChange={(event) => updateChemistryRow(row.Field, event.target.value)}
-                  />
-                </label>
-              ))}
+              {standardChemistryRows.length === 0 ? (
+                <p className="empty-state">请先载入模板默认值</p>
+              ) : (
+                standardChemistryRows.map((row) => renderChemistryField(row, updateChemistryRow))
+              )}
+            </div>
+          </details>
+
+          <details className="section-card details-card details-card-advanced">
+            <summary>INCI 固相路由（高级）</summary>
+            <p className="details-copy">
+              流化床灰渣比与飞灰/底渣残炭，驱动 13LBS-1 底渣与 15PGI-1 夹带固相分流。默认 Fly Ash Ratio 模式对齐 DBI Case-1。
+            </p>
+            <div className="chemistry-grid">
+              {advancedInciSolidRows.length === 0 ? (
+                <p className="empty-state">模板中未找到固相路由字段</p>
+              ) : (
+                advancedInciSolidRows.map((row) => renderChemistryField(row, updateChemistryRow))
+              )}
             </div>
           </details>
         </aside>
@@ -433,7 +651,7 @@ function App() {
           <div className="panel-header">
             <div>
               <h2>结果总览</h2>
-              <p>纯计算结果、主组成、对标差异和求解追踪。</p>
+              <p>纯计算结果、主组成和流程对应关系。</p>
             </div>
             <span className={`mini-status ${result ? 'mini-status-ok' : ''}`}>
               {result ? result.status : '尚未求解'}
@@ -443,35 +661,46 @@ function App() {
           <section className="section-card">
             <div className="section-head">
               <h3>关键指标</h3>
-              <p>先看系统级指标，再往下对照 INCI / POX 分块和流程图。</p>
+              <p>按设备分别给出碳转化率、冷煤气效率和有效气含量（H2+CO 干基百分比）。</p>
             </div>
-            <div className="results-grid">
-              <article className="metric-card">
-                <span>碳转化率</span>
-                <strong>{formatNumber(result?.performance.carbon_conversion_pct, 1)} %</strong>
-              </article>
-              <article className="metric-card">
-                <span>H2/CO</span>
-                <strong>{formatNumber(result?.performance.h2_co_ratio_dry, 2)}</strong>
-              </article>
-              <article className="metric-card">
-                <span>总冷煤气效率</span>
-                <strong>{formatNumber(result?.performance.cold_gas_efficiency_pct, 1)} %</strong>
-              </article>
-              <article className="metric-card">
-                <span>INCI 冷煤气效率</span>
-                <strong>{formatNumber(result?.performance.cold_gas_efficiency_inci_pct, 1)} %</strong>
-              </article>
-              <article className="metric-card">
-                <span>POX 冷煤气效率</span>
-                <strong>{formatNumber(result?.performance.cold_gas_efficiency_pox_pct, 1)} %</strong>
-              </article>
-              <article className="metric-card">
-                <span>匹配工况</span>
-                <strong>{result?.result_summary.matched_case ?? '自定义 / 未匹配'}</strong>
-              </article>
+            <div className="unit-metrics-grid">
+              {keyMetricSections.map((section) => (
+                <article key={section.key} className="unit-metrics-card">
+                  <div className="composition-head">
+                    <h4>{section.title}</h4>
+                    <p>{section.subtitle}</p>
+                  </div>
+                  <div className="results-grid unit-metric-items">
+                    {section.metrics.map((metric) => (
+                      <article key={`${section.key}-${metric.label}`} className="metric-card">
+                        <span>{metric.label}</span>
+                        <strong>{metric.value}</strong>
+                      </article>
+                    ))}
+                  </div>
+                </article>
+              ))}
             </div>
           </section>
+
+          {solidRouting ? (
+            <section className="section-card solid-routing-card">
+              <div className="section-head">
+                <h3>INCI 固相路由摘要</h3>
+                <p>
+                  对应 DBI 13LBS-1 底渣与 15PGI-1 夹带固相（char + fly ash）。求解后随 inci_solid_routing 返回。
+                </p>
+              </div>
+              <div className="results-grid solid-routing-metrics">
+                {solidRoutingMetrics.map((metric) => (
+                  <article key={metric.label} className="metric-card">
+                    <span>{metric.label}</span>
+                    <strong>{metric.value}</strong>
+                  </article>
+                ))}
+              </div>
+            </section>
+          ) : null}
 
           <section className="section-card">
             <div className="section-head">
@@ -505,170 +734,73 @@ function App() {
                 ))}
               </div>
 
-              <div className="table-grid equipment-composition-grid">
-                <div>
-                  <div className="composition-head">
-                    <h4>{section.dryStreamId} 干基 vol%</h4>
-                    <p>对应 PFD 物流编号</p>
-                  </div>
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>组分</th>
-                        <th>vol%</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sortCompositionEntries(section.dryVolPct).map(([key, value]) => (
-                        <tr key={`${section.key}-dry-${key}`}>
-                          <td>{key}</td>
-                          <td>{formatNumber(Number(value), 3)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+              <div className="stream-table-wrap">
+                <div className="composition-head">
+                  <h4>PFD 物流表格式</h4>
+                  <p>按“项目行 + 物流编号列”阅读，更接近流程图中的物流表。</p>
                 </div>
-
-                <div>
-                  <div className="composition-head">
-                    <h4>{section.wetStreamId} 湿基 vol%</h4>
-                    <p>对应 PFD 物流编号</p>
-                  </div>
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>组分</th>
-                        <th>vol%</th>
+                <table className="stream-table">
+                  <thead>
+                    <tr>
+                      <th>项目</th>
+                      <th>单位</th>
+                      <th>{section.dryStreamId} 干基</th>
+                      <th>{section.wetStreamId} 湿基</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {section.streamRows.map((row) => (
+                      <tr key={`${section.key}-${row.label}`}>
+                        <td>{row.label}</td>
+                        <td>{row.unit}</td>
+                        <td>{row.dry}</td>
+                        <td>{row.wet}</td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {sortCompositionEntries(section.wetVolPct).map(([key, value]) => (
-                        <tr key={`${section.key}-wet-${key}`}>
-                          <td>{key}</td>
-                          <td>{formatNumber(Number(value), 3)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </section>
           ))}
 
-          <section className="table-grid">
-            <div className="section-card">
-              <div className="section-head">
-                <h3>INCI 对标偏差</h3>
-                <p>仅在匹配标准工况时显示。</p>
-              </div>
-              <table>
-                <thead>
-                  <tr>
-                    <th>组分</th>
-                    <th>DBI</th>
-                    <th>模型</th>
-                    <th>Δ pp</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(result?.comparison.inci_wet ?? []).map((row) => (
-                    <tr key={String(row['组分'])}>
-                      <td>{String(row['组分'])}</td>
-                      <td>{row['DBI'] === null || row['DBI'] === undefined ? '—' : String(row['DBI'])}</td>
-                      <td>{String(row['模型'])}</td>
-                      <td>{row['Δ pp'] === null || row['Δ pp'] === undefined ? '—' : String(row['Δ pp'])}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="section-card">
-              <div className="section-head">
-                <h3>RGPOX 对标偏差</h3>
-                <p>和 Streamlit 结果页保持同一阅读顺序。</p>
-              </div>
-              <table>
-                <thead>
-                  <tr>
-                    <th>组分</th>
-                    <th>DBI</th>
-                    <th>模型</th>
-                    <th>Δ pp</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(result?.comparison.rgpox_wet ?? []).map((row) => (
-                    <tr key={String(row['组分'])}>
-                      <td>{String(row['组分'])}</td>
-                      <td>{row['DBI'] === null || row['DBI'] === undefined ? '—' : String(row['DBI'])}</td>
-                      <td>{String(row['模型'])}</td>
-                      <td>{row['Δ pp'] === null || row['Δ pp'] === undefined ? '—' : String(row['Δ pp'])}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-
           <section className="section-card">
             <div className="section-head">
-              <h3>进料台账</h3>
-              <p>前端直接显示纯计算输入汇总，不再依赖 Streamlit 本地状态。</p>
+              <h3>进料物流表</h3>
+              <p>进料也按 PFD stream table 格式呈现，与结果物流保持同一种读法。</p>
             </div>
-            <table>
-              <thead>
-                <tr>
-                  <th>工段</th>
-                  <th>PFD</th>
-                  <th>进料项</th>
-                  <th>模型 Stream</th>
-                  <th>kg/h</th>
-                  <th>°C</th>
-                  <th>bar</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(result?.tables.feed_summary ?? []).map((row) => (
-                  <tr key={`${row.PFD}-${row['模型 Stream']}`}>
-                    <td>{String(row['工段'])}</td>
-                    <td>{String(row['PFD'])}</td>
-                    <td>{String(row['进料项'])}</td>
-                    <td>{String(row['模型 Stream'])}</td>
-                    <td>{String(row['kg/h'])}</td>
-                    <td>{String(row['°C'])}</td>
-                    <td>{String(row['bar'])}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="feed-stream-sections">
+              {feedStreamSections.map((section) => (
+                <div key={section.key} className="stream-table-wrap">
+                  <div className="composition-head">
+                    <h4>{section.title}</h4>
+                    <p>按工段拆分的 PFD 进料物流表。</p>
+                  </div>
+                  <table className="stream-table">
+                    <thead>
+                      <tr>
+                        <th>项目</th>
+                        <th>单位</th>
+                        {section.streamIds.map((streamId) => (
+                          <th key={`${section.key}-${streamId}`}>{streamId}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {section.streamRows.map((row) => (
+                        <tr key={`${section.key}-${row.label}`}>
+                          <td>{row.label}</td>
+                          <td>{row.unit}</td>
+                          {row.values.map((value, index) => (
+                            <td key={`${section.key}-${row.label}-${section.streamIds[index]}`}>{value}</td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+            </div>
           </section>
-
-          <details className="section-card details-card" open>
-            <summary>单元追踪 / AUDIT</summary>
-            <table>
-              <thead>
-                <tr>
-                  <th>单元</th>
-                  <th>状态</th>
-                  <th>说明</th>
-                  <th>入口 kg/h</th>
-                  <th>出口 kg/h</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(result?.tables.unit_trace ?? []).map((row) => (
-                  <tr key={`${row.unit_name}-${row.status}`}>
-                    <td>{row.unit_name}</td>
-                    <td>{row.status}</td>
-                    <td>{row.notes}</td>
-                    <td>{formatNumber(row.inlet_total_kg_h, 1)}</td>
-                    <td>{formatNumber(row.outlet_total_kg_h, 1)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </details>
         </main>
       </div>
     </div>

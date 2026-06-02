@@ -191,8 +191,25 @@
   gap: 14px;
 }
 
-.equipment-composition-grid {
-  margin-top: 6px;
+.system-metrics-grid {
+  margin-bottom: 14px;
+}
+
+.unit-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.unit-metrics-card {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 14px;
+  background: #fff;
+}
+
+.unit-metric-items {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .composition-head {
@@ -208,6 +225,41 @@
   margin: 0;
   color: var(--muted);
   font-size: 0.8rem;
+}
+
+.stream-table-wrap {
+  margin-top: 6px;
+  overflow-x: auto;
+}
+
+.feed-stream-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.stream-table {
+  min-width: 560px;
+}
+
+.stream-table th {
+  white-space: nowrap;
+}
+
+.stream-table td:first-child,
+.stream-table th:first-child {
+  min-width: 132px;
+}
+
+.stream-table td:nth-child(2),
+.stream-table th:nth-child(2) {
+  width: 72px;
+}
+
+.stream-table td:nth-child(n + 3),
+.stream-table th:nth-child(n + 3) {
+  text-align: right;
+  min-width: 110px;
 }
 
 .process-diagram-frame {
@@ -350,14 +402,41 @@ th {
   color: var(--muted);
 }
 
+.details-card-advanced {
+  border-color: #c4b5fd;
+  background: linear-gradient(180deg, #faf5ff 0%, #ffffff 100%);
+}
+
+.chemistry-field {
+  gap: 4px;
+}
+
+.chemistry-field-hint {
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.solid-routing-card {
+  border-color: #a7f3d0;
+  background: linear-gradient(180deg, #ecfdf5 0%, #ffffff 100%);
+}
+
+.solid-routing-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 @media (max-width: 1180px) {
   .page-grid,
   .overview-grid,
   .results-grid,
+  .unit-metrics-grid,
+  .unit-metric-items,
   .table-grid,
   .chemistry-grid,
   .inline-grid,
-  .triple-grid {
+  .triple-grid,
+  .solid-routing-metrics {
     grid-template-columns: 1fr;
   }
 

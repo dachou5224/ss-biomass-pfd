@@ -15,6 +15,12 @@
 # Case-1 全流股 stream table（p2–p3）
 python3 scripts/extract_dbi_inci_stream_table.py
 
+# Unit 15 RGPOX stream table（p2）+ rgpox_streams.csv
+python3 scripts/extract_dbi_rgpox_stream_table.py
+
+# 审计 reference_cases 与 PDF/CSV 是否一致
+python3 scripts/audit_dbi_validation_baseline.py --case Case-1
+
 # 其它 CSV（inci_streams、质量衡算、进料组分）需从 PDF 整理或沿用既有提取流程后写入本目录
 ```
 
@@ -26,8 +32,9 @@ python3 scripts/extract_dbi_inci_stream_table.py
 | `inci_streams.csv` | 13PGI-1 湿基 mol/mol 全组分 |
 | `dbi_inci_mass_balance_case1.csv` | INCI 边界质量衡算 |
 | `dbi_inci_inlet_composition_case1.csv` | 边界进料组分 |
-| `dbi_rgpox_mass_balance_case1.csv` | RGPOX 边界质量衡算（15PGI-1/15OG1） |
-| `rgpox_streams.csv` | 15PGR-2 湿基 mol/mol 全组分 |
+| `dbi_rgpox_mass_balance_case1.csv` | RGPOX 边界质量衡算（15PGI-1/15OG1/15PGR-*） |
+| `dbi_rgpox_stream_table_case1.csv` | Unit 15 全量 stream table 长表 |
+| `rgpox_streams.csv` | 15PGR-1/15PGR-2 湿/干基 mol/mol 全组分 |
 
 克隆仓库后若缺少上述文件，对标相关测试会自动跳过；本地有 PDF 时按上表生成即可。
 

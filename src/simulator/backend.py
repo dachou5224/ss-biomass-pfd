@@ -13,15 +13,22 @@ from .elemental import (
     biomass_sample_from_chem,
     biomass_to_elemental_moles_for_chem,
     biomass_to_elemental_moles_from_sample,
+    biomass_vm_dry_pct,
 )
 from .feed_streams import inci_o2_stream_species_kg_h
 from .gibbs import solve_gibbs_major
+from .inci_conversion import (
+    InciFlyAshSlagParams,
+    parse_inci_solid_routing_mode,
+    resolve_inci_solid_routing,
+)
 from .parameters import (
     ATOMIC_WEIGHT,
     CELSIUS_TO_KELVIN_OFFSET,
     DEFAULT_BIOMASS_SAMPLE_FALLBACK,
     DEFAULT_CHEMISTRY_SETUP,
     EQUILIBRIUM_CFG,
+    INCI_FBR_SOLIDS_CFG,
     MOLECULAR_WEIGHT,
     NUMERICAL_CFG,
     QUENCH_CFG,
@@ -32,11 +39,10 @@ from .parameters import (
 from .pyrolysis import allocate_pyrolysis_products_elemental
 from .rgpox import (
     RGPOX_EQUATION_BASIS,
-    build_rgpox_inlet_bundle,
     pyrolyze_rgpox_volatiles,
     resolve_entrained_solid,
     rgpox_stage_notes,
-    solve_rgpox_gibbs_equilibrium,
+    run_rgpox_reaction_sequence,
 )
 from .rgpox_quench import apply_rgpox_quench
 from .species import (
@@ -418,7 +424,7 @@ def _build_inci_elemental_inlet(
 ) -> Tuple[Dict[str, float], float]:
     sample = biomass_sample_from_chem(chem) if chem else BIOMASS_SAMPLES.get(sample_id, BIOMASS_SAMPLES[DEFAULT_BIOMASS_SAMPLE_FALLBACK])
     bio = biomass_to_elemental_moles_from_sample(sample, feed_map.get("Biomass", 0.0))
-    inlet = {k: bio.get(k, 0.0) for k in ("C", "H", "O", "N", "S", "Ar")}
+    inlet = {k: bio.get(k, 0.0) for k in ("C", "H", "O", "N", "S", "Ar", "Cl")}
     ash_kg_h = bio["Ash_kg_h"]
     moisture_kg_h = feed_map.get("Biomass", 0.0) * sample.mad_pct / 100.0
     moisture_h2o_mol_h = _kg_to_mol_h(moisture_kg_h, 18.015)
@@ -490,11 +496,61 @@ def _split_biomass_s(s_mol_h: float, h2s_frac: float, release_frac: float) -> Tu
     return n_h2s, n_cos
 
 
+def _split_biomass_cl(cl_mol_h: float) -> float:
+    """元素 Cl (mol/h) → 气相 HCl (mol/h)；假定 Cl 100% 进入气相。"""
+    return max(cl_mol_h, 0.0)
+
+
+def _compute_inci_n2_makeup_mol_h(flow: Dict[str, float], target_wet_pct: float) -> float:
+    """补齐惰性 N2 至目标湿基 mol%（DBI 13PGI-1 stream table 闭合项）。"""
+    y_target = float(np.clip(target_wet_pct, 0.0, 100.0)) / 100.0
+    if y_target <= 0.0:
+        return 0.0
+    wet_total = sum(max(flow.get(k, 0.0), 0.0) for k in INCI_WET_SPECIES)
+    n_n2 = max(flow.get("N2", 0.0), 0.0)
+    if wet_total <= 0.0 or n_n2 / wet_total >= y_target - 1e-12:
+        return 0.0
+    return max((y_target * wet_total - n_n2) / max(1.0 - y_target, 1e-12), 0.0)
+
+
+def _resolve_inci_n2_makeup_target_wet_pct(
+    chem: Dict[str, str],
+    matched_case: str | None,
+) -> float | None:
+    mode = _chem_text(
+        chem,
+        "INCI N2 Makeup Mode",
+        str(DEFAULT_CHEMISTRY_SETUP.get("INCI N2 Makeup Mode", "off")),
+    ).strip().lower()
+    if mode in ("off", "none", "false", "0"):
+        return None
+    if mode in ("dbi_reference", "dbi", "reference") and matched_case:
+        expected = REFERENCE_CASES[matched_case]["expected"]
+        wet = expected.get("inci_comp_wet_full") or expected.get("inci_comp_wet")
+        if wet and wet.get("N2") is not None:
+            return float(wet["N2"])
+    raw = _chem_text(
+        chem,
+        "INCI N2 Target Wet mol%",
+        str(DEFAULT_CHEMISTRY_SETUP.get("INCI N2 Target Wet mol%", "2.0")),
+    )
+    if not raw:
+        return None
+    return float(raw)
+
+
+def _apply_inci_n2_makeup(flow: Dict[str, float], makeup_mol_h: float) -> Dict[str, float]:
+    out = dict(flow)
+    out["N2"] = max(out.get("N2", 0.0), 0.0) + max(makeup_mol_h, 0.0)
+    return out
+
+
 def _allocate_trace_species_from_biomass(
     major_flow: Dict[str, float],
     *,
     biomass_s_mol_h: float,
     biomass_n_mol_h: float,
+    biomass_cl_mol_h: float = 0.0,
     feed_n2_mol_h: float,
     feed_ar_mol_h: float,
     h2s_split: float,
@@ -502,18 +558,19 @@ def _allocate_trace_species_from_biomass(
     s_release_frac: float,
 ) -> Tuple[Dict[str, float], Dict[str, float]]:
     """
-    生物质 N/S 元素守恒分配至 N2/NH3、H2S/COS；进料 N2/Ar 叠加至主气。
+    生物质 N/S/Cl 元素守恒分配至 N2/NH3、H2S/COS、HCl；进料 N2/Ar 叠加至主气。
     """
     flow = dict(major_flow)
     n_h2s, n_cos = _split_biomass_s(biomass_s_mol_h, h2s_split, s_release_frac)
     n_nh3, n_n2_bio = _split_biomass_n(biomass_n_mol_h, nh3_frac_of_biomass_n)
+    n_hcl = _split_biomass_cl(biomass_cl_mol_h)
 
-    flow["H2"] = max(flow.get("H2", 0.0) - 2.0 * n_h2s - 1.5 * n_nh3, 1e-9)
+    flow["H2"] = max(flow.get("H2", 0.0) - 2.0 * n_h2s - 1.5 * n_nh3 - n_hcl, 1e-9)
     flow["CO"] = max(flow.get("CO", 0.0) - n_cos, 1e-9)
     flow["N2"] = max(feed_n2_mol_h, 0.0) + n_n2_bio
     flow["Ar"] = max(feed_ar_mol_h, 0.0)
 
-    minor = {"H2S": n_h2s, "COS": n_cos, "NH3": n_nh3}
+    minor = {"H2S": n_h2s, "COS": n_cos, "NH3": n_nh3, "HCl": n_hcl}
     return flow, minor
 
 
@@ -531,6 +588,7 @@ def _add_minor_species(
         major,
         biomass_s_mol_h=sulfur_mol_h,
         biomass_n_mol_h=biomass_n_mol_h,
+        biomass_cl_mol_h=0.0,
         feed_n2_mol_h=feed_n2_mol_h,
         feed_ar_mol_h=feed_ar_mol_h,
         h2s_split=h2s_split,
@@ -576,6 +634,36 @@ def _calc_rmsd_pct(pred: Dict[str, float], ref: Dict[str, float], keys: List[str
     return float(np.sqrt(np.mean(np.square(arr))))
 
 
+def _chem_text(chem: Dict[str, str], key: str, default: str = "") -> str:
+    return str(chem.get(key, DEFAULT_CHEMISTRY_SETUP.get(key, default))).strip()
+
+
+def _resolve_inci_target_conversion(
+    chem: Dict[str, str],
+    dbi_boundary_basis: dict[str, float] | None,
+) -> float:
+    raw = _chem_text(chem, "INCI Overall Biomass C Conversion")
+    if raw:
+        return float(np.clip(float(raw), 0.0, 1.0))
+    if dbi_boundary_basis and dbi_boundary_basis.get("overall_biomass_carbon_conversion_pct") is not None:
+        return float(dbi_boundary_basis["overall_biomass_carbon_conversion_pct"]) / 100.0
+    return float(INCI_C_CONVERSION)
+
+
+def _resolve_inci_fly_ash_params(chem: Dict[str, str]) -> InciFlyAshSlagParams:
+    def _float(key: str, fallback_key: str) -> float:
+        raw = _chem_text(chem, key)
+        if raw:
+            return float(raw)
+        return float(INCI_FBR_SOLIDS_CFG[fallback_key])
+
+    return InciFlyAshSlagParams(
+        fly_ash_to_slag_mass_ratio=_float("INCI Fly Ash / Slag Mass Ratio", "fly_ash_to_slag_mass_ratio"),
+        fly_ash_residual_carbon_wt_pct_dry=_float("INCI Fly Ash Residual C wt% dry", "fly_ash_residual_carbon_wt_pct_dry"),
+        slag_residual_carbon_wt_pct_dry=_float("INCI Slag Residual C wt% dry", "slag_residual_carbon_wt_pct_dry"),
+    )
+
+
 def run_fixed_temperature_simulation(
     feed_df: pd.DataFrame,
     specs_df: pd.DataFrame,
@@ -588,6 +676,10 @@ def run_fixed_temperature_simulation(
     sample = chem.get("Sample", DEFAULT_BIOMASS_SAMPLE_FALLBACK)
     if sample not in BIOMASS_SAMPLES:
         sample = DEFAULT_BIOMASS_SAMPLE_FALLBACK
+    matched_case = _match_reference_case(feed, sample)
+    dbi_boundary_basis = None
+    if matched_case:
+        dbi_boundary_basis = REFERENCE_CASES[matched_case]["expected"].get("dbi_inci_boundary_basis")
 
     tar_factor_text = chem.get("Tar Yield Factor", DEFAULT_CHEMISTRY_SETUP["Tar Yield Factor"])
     tar_yield_mass_kg_h = parse_tar_yield_mass_kg_h(feed.get("Biomass", 0.0), sample, tar_factor_text)
@@ -600,7 +692,7 @@ def run_fixed_temperature_simulation(
     o2_purity = _chem_float("O2 Purity vol%")
     tar_hc = _chem_float("Tar target H/C")
     pyro_scheme = chem.get("Pyrolysis Scheme", DEFAULT_CHEMISTRY_SETUP["Pyrolysis Scheme"]).strip().lower()
-    vm_dry_wt = np.clip(_chem_float("Biomass VM Dry wt%"), 0.0, 100.0)
+    vm_dry_wt = np.clip(biomass_vm_dry_pct(chem), 0.0, 100.0)
     vm_frac = vm_dry_wt / 100.0
     dt_wgs_c = float(chem.get("TA DeltaT WGS (C)", "0.0"))
     dt_meth_c = float(chem.get("TA DeltaT Meth (C)", "0.0"))
@@ -623,7 +715,12 @@ def run_fixed_temperature_simulation(
     t_inci_k = float(specs.get("INCI_T_C", 900.0)) + CELSIUS_TO_KELVIN_OFFSET
     t_slag_k = float(specs.get("SLAG_T_C", 800.0)) + CELSIUS_TO_KELVIN_OFFSET
     t_pox_k = RGPOX_T_C + CELSIUS_TO_KELVIN_OFFSET
-    inci_c_conv = INCI_C_CONVERSION
+    inci_c_conv = _resolve_inci_target_conversion(chem, dbi_boundary_basis)
+    inci_solid_routing_mode = _chem_text(
+        chem,
+        "INCI Solid Routing Mode",
+        str(INCI_FBR_SOLIDS_CFG.get("default_routing_mode", "Fly Ash Ratio")),
+    )
     pox_c_conv = np.clip(float(specs.get("RGPOX_C_CONV", 1.0)), 0.0, 1.0)
     ash_to_slag = np.clip(float(specs.get("ASH_TO_SLAG_FRAC", 0.60)), 0.0, 1.0)
     char_to_slag = np.clip(float(specs.get("CHAR_TO_SLAG_FRAC", 0.55)), 0.0, 1.0)
@@ -679,8 +776,21 @@ def run_fixed_temperature_simulation(
     }
     inci_from_pyro = elemental_totals_from_species(pyro_split.volatile_species_mol_h, ["C", "H", "O", "N", "Ar"])
     char_pool = pyro_split.char_carbon_mol_h + biomass_nonvm_elem["C"]
-    reactive_char = char_pool * inci_c_conv
-    char_after_inci = max(char_pool - reactive_char, 0.0)
+    solid_routing = resolve_inci_solid_routing(
+        biomass_total_c_mol_h=biomass_elem["C"],
+        char_pool_c_mol_h=char_pool,
+        ash_kg_h=ash_kg_h,
+        target_conversion=inci_c_conv,
+        ash_to_slag_frac=ash_to_slag,
+        char_to_slag_frac=char_to_slag,
+        slag_residual_c_ash_mass_ratio=float(SLAG_CFG["target_residual_c_ash_mass_ratio"]),
+        dbi_boundary_basis=dbi_boundary_basis,
+        solid_routing_mode=inci_solid_routing_mode,
+        fly_ash_params=_resolve_inci_fly_ash_params(chem),
+    )
+    reactive_char = solid_routing.reactive_char_mol_h
+    char_after_inci = solid_routing.residual_char_mol_h
+    ash_kg_h = solid_routing.effective_ash_kg_h
 
     # INCI Gibbs feed assembled from volatile release + external oxidants + reactive char fraction.
     inci_elem = {
@@ -711,6 +821,7 @@ def run_fixed_temperature_simulation(
         inci_major_flow,
         biomass_s_mol_h=biomass_elem["S"],
         biomass_n_mol_h=biomass_elem["N"],
+        biomass_cl_mol_h=biomass_elem.get("Cl", 0.0),
         feed_n2_mol_h=inci_feed_n2,
         feed_ar_mol_h=inci_feed_ar,
         h2s_split=h2s_split,
@@ -718,14 +829,20 @@ def run_fixed_temperature_simulation(
         s_release_frac=s_release_frac,
     )
     inci_outlet_flow = {**inci_major_flow, **inci_minor}
+    inci_n2_makeup_mol_h = 0.0
+    n2_makeup_target_wet = _resolve_inci_n2_makeup_target_wet_pct(chem, matched_case)
+    if n2_makeup_target_wet is not None:
+        inci_n2_makeup_mol_h = _compute_inci_n2_makeup_mol_h(inci_outlet_flow, n2_makeup_target_wet)
+        if inci_n2_makeup_mol_h > 0.0:
+            inci_outlet_flow = _apply_inci_n2_makeup(inci_outlet_flow, inci_n2_makeup_mol_h)
 
     # SLAG section receives char fraction + post feeds.
-    char_to_slag_mol = char_after_inci * char_to_slag
-    char_to_pox_mol = char_after_inci - char_to_slag_mol
-    char_to_slag_kg_h = char_to_slag_mol * 12.011 / 1000.0
-    char_to_pox_kg_h = char_to_pox_mol * 12.011 / 1000.0
-    ash_slag_kg_h = ash_kg_h * ash_to_slag
-    ash_pox_kg_h = ash_kg_h * (1.0 - ash_to_slag)
+    char_to_slag_kg_h = solid_routing.char_to_slag_kg_h
+    char_to_pox_kg_h = solid_routing.char_to_pox_kg_h
+    char_to_slag_mol = _kg_to_mol_h(char_to_slag_kg_h, ATOMIC_WEIGHT["C"])
+    char_to_pox_mol = _kg_to_mol_h(char_to_pox_kg_h, ATOMIC_WEIGHT["C"])
+    ash_slag_kg_h = solid_routing.ash_to_slag_kg_h
+    ash_pox_kg_h = solid_routing.ash_to_pox_kg_h
     slag_elem = {
         "C": char_to_slag_mol,
         "H": 2.0 * _kg_to_mol_h(feed.get("POSTH2O", 0.0), 18.015),
@@ -740,16 +857,15 @@ def run_fixed_temperature_simulation(
     slag_elem["N"] += 2.0 * post_n2_imp
     slag_elem["Ar"] += post_ar_imp
     # target residual carbon in solids around 10 wt% of (ash + carbon) by reducing reactive C feed.
-    target_residual_c_kg_h = ash_slag_kg_h / float(SLAG_CFG["target_residual_c_ash_mass_ratio"])
+    target_residual_c_kg_h = solid_routing.target_residual_c_kg_h
     target_residual_c_mol = _kg_to_mol_h(target_residual_c_kg_h, ATOMIC_WEIGHT["C"])
     slag_elem["C"] = max(slag_elem["C"] - target_residual_c_mol, 0.0)
     slag_major = solve_gibbs_major(slag_elem, MAJOR_SPECIES, t_slag_k, p_bar)
 
     # 13LBS-1：去 Unit 14 的渣流（灰分渣 + 目标残碳；与 DBI inci_slag_kg_h 对标）
-    slag_to_u14_kg_h = ash_slag_kg_h + target_residual_c_kg_h
+    slag_to_u14_kg_h = solid_routing.slag_to_u14_kg_h
 
     inci_tar_kg_h = tar_allocation_mass_kg_h(pyro_split.tar_allocation)
-    matched_case = _match_reference_case(feed, sample)
     tar_fuel = chem.get("Tar Fuel Type", "biomass").strip().lower()
     if tar_fuel not in ("coal", "biomass"):
         tar_fuel = "biomass"
@@ -770,7 +886,22 @@ def run_fixed_temperature_simulation(
     )
     pox_o2_mol = _kg_to_mol_h(feed.get("O2POX", 0.0), 31.998)
     pox_n2_imp, pox_ar_imp = _o2_impurity_moles(pox_o2_mol, o2_purity)
-    pox_inlet = build_rgpox_inlet_bundle(
+
+    def _apply_pox_ta(major: Dict[str, float]) -> Dict[str, float]:
+        return _apply_restricted_equilibrium_ta(
+            major,
+            t_gibbs_k=t_pox_k,
+            p_bar=p_bar,
+            dt_wgs_c=pox_dt_wgs_c,
+            dt_meth_c=pox_dt_meth_c,
+            eta_wgs=pox_eta_wgs,
+            eta_meth=pox_eta_meth,
+            dt_ox_co_c=pox_dt_ox_co_c,
+            dt_ox_h2_c=pox_dt_ox_h2_c,
+            dt_ox_ch4_c=pox_dt_ox_ch4_c,
+        )
+
+    pox_sequence = run_rgpox_reaction_sequence(
         inci_outlet_flow,
         entrained=entrained,
         volatile_pyro=volatile_pyro,
@@ -778,25 +909,12 @@ def run_fixed_temperature_simulation(
         o2_pox_mol_h=pox_o2_mol,
         o2_n2_imp_mol_h=pox_n2_imp,
         o2_ar_imp_mol_h=pox_ar_imp,
-    )
-    pox_stage = solve_rgpox_gibbs_equilibrium(
-        pox_inlet,
         p_bar=p_bar,
         t_c=RGPOX_T_C,
-        char_conversion=pox_c_conv,
+        apply_ta=_apply_pox_ta,
     )
-    pox_major_flow = _apply_restricted_equilibrium_ta(
-        dict(pox_stage.major_flow_mol_h),
-        t_gibbs_k=t_pox_k,
-        p_bar=p_bar,
-        dt_wgs_c=pox_dt_wgs_c,
-        dt_meth_c=pox_dt_meth_c,
-        eta_wgs=pox_eta_wgs,
-        eta_meth=pox_eta_meth,
-        dt_ox_co_c=pox_dt_ox_co_c,
-        dt_ox_h2_c=pox_dt_ox_h2_c,
-        dt_ox_ch4_c=pox_dt_ox_ch4_c,
-    )
+    pox_stage = pox_sequence.stage
+    pox_major_flow = dict(pox_sequence.major_flow_mol_h)
     pox_minor = dict(pox_stage.minor_flow_mol_h)
     pox_outlet_flow_ante = {**pox_major_flow, **pox_minor}
 
@@ -850,10 +968,14 @@ def run_fixed_temperature_simulation(
         dbi_total_flow = meta.get("total_flow_kg_h")
         dbi_slag_mass = expected.get("inci_slag_kg_h")
         dbi_h2o_wet = wet_full.get("H2O")
+    audit_inlet_elem = dict(inci_inlet_elem)
+    if inci_n2_makeup_mol_h > 0.0:
+        audit_inlet_elem["N"] = audit_inlet_elem.get("N", 0.0) + 2.0 * inci_n2_makeup_mol_h
     inci_mass_audit = build_inci_mass_audit(
         feed_map=feed,
-        inlet_elem=inci_inlet_elem,
+        inlet_elem=audit_inlet_elem,
         gas_flow_mol_h=inci_outlet_flow,
+        n2_makeup_mol_h=inci_n2_makeup_mol_h,
         char_carbon_mol_h=char_after_inci,
         ash_kg_h=ash_kg_h,
         ash_to_slag_kg_h=ash_slag_kg_h,
@@ -869,15 +991,21 @@ def run_fixed_temperature_simulation(
         tar_mass_kg_h=inci_tar_kg_h,
         tar_allocation=pyro_split.tar_allocation,
         biomass_s_mol_h=biomass_elem["S"],
+        biomass_carbon_in_kg_h=biomass_elem["C"] * ATOMIC_WEIGHT["C"] / 1000.0,
         s_release_frac=s_release_frac,
         matched_case=matched_case,
         dbi_gas_mass_kg_h=dbi_gas_mass,
         dbi_total_flow_kg_h=dbi_total_flow,
         dbi_slag_mass_kg_h=dbi_slag_mass,
         dbi_h2o_wet_pct=dbi_h2o_wet,
+        solid_routing_mode=inci_solid_routing_mode,
+        fly_ash_total_kg_h=solid_routing.fly_ash_total_kg_h,
+        fly_ash_to_slag_ratio=solid_routing.fly_ash_to_slag_mass_ratio,
     )
 
     balance_in = dict(total_inlet_elem)
+    if inci_n2_makeup_mol_h > 0.0:
+        balance_in["N"] = balance_in.get("N", 0.0) + 2.0 * inci_n2_makeup_mol_h
     h2o_add_mol_h = quench_result.h2o_added_mol_h
     balance_in["H"] = balance_in.get("H", 0.0) + 2.0 * h2o_add_mol_h
     balance_in["O"] = balance_in.get("O", 0.0) + h2o_add_mol_h
@@ -885,7 +1013,7 @@ def run_fixed_temperature_simulation(
     for sp, val in slag_major.species_flow_mol_h.items():
         out_species[sp] = out_species.get(sp, 0.0) + val
     balance_out = elemental_totals_from_species(out_species, ["C", "H", "O", "N", "S", "Ar"])
-    balance_out["C"] += target_residual_c_mol + entrained.carbon_mol_h * (1.0 - pox_c_conv)
+    balance_out["C"] += target_residual_c_mol + pox_stage.char_unreacted_mol_h
     solid_s_mol_h = max(biomass_elem["S"], 0.0) * max(0.0, 1.0 - min(max(s_release_frac, 0.0), 1.0))
     balance_out["S"] += solid_s_mol_h
     balance_rows = [
@@ -899,7 +1027,7 @@ def run_fixed_temperature_simulation(
         UnitResult(
             "INCI(RGibbs)",
             "ok" if inci_major.success else "warn",
-            f"{inci_major.message}; PyroScheme={pyro_scheme}; VM_dry={vm_dry_wt:.1f} wt%; T={t_inci_k-273.15:.1f}C, C_conv={inci_c_conv:.2f} (fixed), trace=biomass S/N balance + feed N2/Ar, TA(WGS,Meth)=({dt_wgs_c:.1f},{dt_meth_c:.1f})C, ETA(WGS,Meth)=({eta_wgs:.2f},{eta_meth:.2f}), TA_OX(CO,H2,CH4)=({dt_ox_co_c:.1f},{dt_ox_h2_c:.1f},{dt_ox_ch4_c:.1f})C; EqBasis: C+H2O<->CO+H2, C+CO2<->2CO, CO+H2O<->CO2+H2, CO+3H2<->CH4+H2O, C+O2->CO2, CO+0.5O2->CO2, H2+0.5O2->H2O, CH4+2O2->CO2+2H2O",
+            f"{inci_major.message}; PyroScheme={pyro_scheme}; VM_dry={vm_dry_wt:.1f} wt%; T={t_inci_k-273.15:.1f}C, C_conv={inci_c_conv:.2f} (fixed), trace=biomass S/N/Cl balance + feed N2/Ar, N2_makeup={inci_n2_makeup_mol_h:.0f} mol/h, TA(WGS,Meth)=({dt_wgs_c:.1f},{dt_meth_c:.1f})C, ETA(WGS,Meth)=({eta_wgs:.2f},{eta_meth:.2f}), TA_OX(CO,H2,CH4)=({dt_ox_co_c:.1f},{dt_ox_h2_c:.1f},{dt_ox_ch4_c:.1f})C; EqBasis: C+H2O<->CO+H2, C+CO2<->2CO, CO+H2O<->CO2+H2, CO+3H2<->CH4+H2O, C+O2->CO2, CO+0.5O2->CO2, H2+0.5O2->H2O, CH4+2O2->CO2+2H2O",
             feed.get("Biomass", 0.0) + feed.get("CIN", 0.0),
             inci_top_kg_h + inci_slag_kg_h,
         ),
@@ -917,7 +1045,7 @@ def run_fixed_temperature_simulation(
             "RGPOX(RGibbs)",
             "ok" if pox_stage.gibbs.success else "warn",
             (
-                f"{rgpox_stage_notes(pox_stage)}; "
+                f"{rgpox_stage_notes(pox_stage, reaction_sequence=pox_sequence.reaction_sequence)}; "
                 f"TA(WGS,Meth)=({pox_dt_wgs_c:.1f},{pox_dt_meth_c:.1f})C, "
                 f"ETA(WGS,Meth)=({pox_eta_wgs:.2f},{pox_eta_meth:.2f}), "
                 f"TA_OX(CO,H2,CH4)=({pox_dt_ox_co_c:.1f},{pox_dt_ox_h2_c:.1f},{pox_dt_ox_ch4_c:.1f})C"
@@ -999,6 +1127,7 @@ def run_fixed_temperature_simulation(
         inci_pgi_total_kg_h=round(inci_pgi_total_kg_h, int(_NUM["mass_round_digits"])),
         inci_slag_kg_h=round(inci_slag_kg_h, int(_NUM["mass_round_digits"])),
         pox_gas_kg_h=round(pox_gas_kg_h, int(_NUM["mass_round_digits"])),
+        pox_gas_ante_kg_h=round(pox_gas_ante_kg_h, int(_NUM["mass_round_digits"])),
         pox_ash_kg_h=round(pox_ash_kg_h, int(_NUM["mass_round_digits"])),
         inci_comp_dry_vol_pct=inci_vol,
         pox_comp_dry_vol_pct=pox_vol,
@@ -1029,4 +1158,5 @@ def run_fixed_temperature_simulation(
         inci_mass_audit=inci_mass_audit,
         rgpox_inlet_audit=rgpox_inlet_audit,
         matched_case=matched_case,
+        inci_n2_makeup_mol_h=round(inci_n2_makeup_mol_h, 1),
     )
